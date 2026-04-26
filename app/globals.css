@@ -1,26 +1,68 @@
 @import "tailwindcss";
 
+@theme {
+  --font-display: var(--font-bebas-neue), sans-serif;
+  --font-body: var(--font-dm-sans), sans-serif;
+
+  --color-bg-primary: var(--bg-primary);
+  --color-bg-card: var(--bg-card);
+  --color-bg-card-hover: var(--bg-card-hover);
+  --color-border: var(--border);
+  
+  --color-accent-green: var(--accent-green);
+  --color-accent-yellow: var(--accent-yellow);
+  --color-accent-blue: var(--accent-blue);
+  --color-accent-red: var(--accent-red);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Brand Palette - Change these to rebrand the entire site */
+  --bg-primary: #0a0e1a;        /* Near-black navy */
+  --bg-card: #111827;           /* Dark card background */
+  --bg-card-hover: #1a2236;
+  --border: #1f2937;
+  
+  --accent-green: #10b981;      /* HOME WIN */
+  --accent-yellow: #f59e0b;     /* DRAW */
+  --accent-blue: #3b82f6;       /* AWAY WIN */
+  --accent-red: #ef4444;        /* LOW confidence / error */
+  
+  --text-primary: #f9fafb;
+  --text-secondary: #9ca3af;
+  --text-muted: #4b5563;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-dm-sans), sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom utilities for prediction styles */
+@layer utilities {
+  .prediction-bar-home {
+    border-left: 4px solid var(--accent-green);
+  }
+  .prediction-bar-draw {
+    border-left: 4px solid var(--accent-yellow);
+  }
+  .prediction-bar-away {
+    border-left: 4px solid var(--accent-blue);
+  }
+
+  .glow-home:hover {
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+  }
+  .glow-draw:hover {
+    box-shadow: 0 0 15px rgba(245, 158, 11, 0.2);
+  }
+  .glow-away:hover {
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.2);
+  }
 }
