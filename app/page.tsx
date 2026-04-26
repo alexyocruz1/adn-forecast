@@ -2,32 +2,66 @@ import { Suspense } from "react";
 import Header from "@/components/Header";
 import ForecastGrid from "@/components/ForecastGrid";
 import LoadingState from "@/components/LoadingState";
+import { getCachedForecasts, setCachedForecasts } from "@/lib/cache";
+import { getEnrichedMatches } from "@/lib/football";
+import { generateBatchForecasts } from "@/lib/gemini";
 import { ForecastResult } from "@/lib/types";
 
-// Force dynamic since we want to always get the latest data or cache logic from API
+// Force dynamic since we want to always get the latest data or cache logic
 export const dynamic = "force-dynamic";
 
+/**
+ * Direct data fetcher for Server Components.
+ * This avoids the need for an internal fetch() call to /api/forecasts.
+ */
 async function getForecasts(): Promise<ForecastResult[]> {
   try {
-    // In production we would call an absolute URL, but for relative we need headers
-    // Using a direct relative fetch in Next App Router sometimes requires the absolute origin.
-    // For simplicity we will build the full URL or we can directly import the data logic.
-    // But per spec, we fetch from /api/forecasts. We use NEXT_PUBLIC_VERCEL_URL if available.
-    
-    const baseUrl = process.env.VERCEL_URL 
-      ? `https://${process.env.VERCEL_URL}` 
-      : 'http://localhost:3000';
-      
-    const res = await fetch(`${baseUrl}/api/forecasts`, {
-      cache: 'no-store'
-    });
-    
-    if (!res.ok) throw new Error("Failed to fetch forecasts");
-    
-    const data = await res.json();
-    return data.forecasts || [];
+    const today = new Date().toISOString().split("T")[0];
+
+    // 1. Try to read from cache
+    const cached = await getCachedForecasts(today);
+    if (cached && cached.length > 0) {
+      console.log(`[page] Cache hit for ${today}: ${cached.length} forecasts`);
+      return cached;
+    }
+
+    // 2. Cache miss — generate forecasts
+    console.log(`[page] Cache miss for ${today}, generating...`);
+    const matches = await getEnrichedMatches();
+
+    if (matches.length === 0) {
+      return [];
+    }
+
+    // 3. Generate forecast for all matches in a single batch
+    console.log(`[page] Sending ${matches.length} matches to Gemini...`);
+    const batchResults = await generateBatchForecasts(matches);
+
+    const forecasts: ForecastResult[] = [];
+    for (const match of matches) {
+      const forecast = batchResults.get(match.id);
+      if (forecast) {
+        forecasts.push({
+          matchId: match.id,
+          competition: match.competition,
+          competitionCode: match.competitionCode,
+          utcDate: match.utcDate,
+          homeTeam: match.homeTeam,
+          awayTeam: match.awayTeam,
+          forecast,
+          generatedAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    // 4. Store in cache
+    if (forecasts.length > 0) {
+      await setCachedForecasts(today, forecasts);
+    }
+
+    return forecasts;
   } catch (error) {
-    console.error("Error fetching forecasts:", error);
+    console.error("[page] Error loading forecasts:", error);
     return [];
   }
 }
