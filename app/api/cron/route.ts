@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnrichedMatches } from "@/lib/football";
-import { generateForecast } from "@/lib/gemini";
+import { generateBatchForecasts } from "@/lib/gemini";
 import { setCachedForecasts } from "@/lib/cache";
 import { ForecastResult } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // Allow maximum serverless execution time
 
 export async function GET(request: NextRequest) {
   // 1. Validate Authorization header
@@ -32,20 +33,25 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // 3. Generate forecast for each match sequentially
+    // 3. Generate forecast for all matches in a single batch
+    console.log(`[cron] Sending ${matches.length} matches to Gemini...`);
+    const batchResults = await generateBatchForecasts(matches);
+
     const forecasts: ForecastResult[] = [];
     for (const match of matches) {
-      const forecast = await generateForecast(match);
-      forecasts.push({
-        matchId: match.id,
-        competition: match.competition,
-        competitionCode: match.competitionCode,
-        utcDate: match.utcDate,
-        homeTeam: match.homeTeam,
-        awayTeam: match.awayTeam,
-        forecast,
-        generatedAt: new Date().toISOString(),
-      });
+      const forecast = batchResults.get(match.id);
+      if (forecast) {
+        forecasts.push({
+          matchId: match.id,
+          competition: match.competition,
+          competitionCode: match.competitionCode,
+          utcDate: match.utcDate,
+          homeTeam: match.homeTeam,
+          awayTeam: match.awayTeam,
+          forecast,
+          generatedAt: new Date().toISOString(),
+        });
+      }
     }
 
     // 4. Force-overwrite cache (re-generation)
