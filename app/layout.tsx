@@ -16,6 +16,11 @@ const dmSans = DM_Sans({
 export const metadata: Metadata = {
   title: "ADN Futbolero | Pronósticos con Inteligencia Artificial",
   description: "Pronósticos diarios de fútbol generados por inteligencia artificial. Análisis de la Premier League, La Liga, Champions League y más.",
+  icons: {
+    icon: '/images/adnlogo.png',
+    shortcut: '/images/adnlogo.png',
+    apple: '/images/adnlogo.png',
+  },
 };
 
 export default function RootLayout({

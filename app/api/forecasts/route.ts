@@ -7,20 +7,25 @@ import { ForecastResult } from "@/lib/types";
 export const revalidate = 0; // Never cache this route at the CDN level
 export const maxDuration = 60; // Allow maximum serverless execution time
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const forceRefresh = searchParams.get("refresh") === "1";
+
     // 1. Get today's date (UTC)
     const today = new Date().toISOString().split("T")[0];
 
-    // 2. Try to read from cache
-    const cached = await getCachedForecasts(today);
-    if (cached) {
-      console.log(`[forecasts] Cache hit for ${today}: ${cached.length} forecasts`);
-      return NextResponse.json({ forecasts: cached, fromCache: true });
+    // 2. Try to read from cache (unless forced refresh)
+    if (!forceRefresh) {
+      const cached = await getCachedForecasts(today);
+      if (cached) {
+        console.log(`[forecasts] Cache hit for ${today}: ${cached.length} forecasts`);
+        return NextResponse.json({ forecasts: cached, fromCache: true });
+      }
     }
 
-    // 3. Cache miss — generate forecasts
-    console.log(`[forecasts] Cache miss for ${today}, generating...`);
+    // 3. Cache miss or force refresh — generate forecasts
+    console.log(`[forecasts] ${forceRefresh ? "Forced refresh" : "Cache miss"} for ${today}, generating...`);
     const matches = await getEnrichedMatches();
 
     if (matches.length === 0) {

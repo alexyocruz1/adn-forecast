@@ -1,88 +1,70 @@
-import { Match, TeamStats } from "./types";
+import { TeamStats, Match, ForecastResult } from "./types";
 
 const BASE_URL = "https://v3.football.api-sports.io";
 
-// Mapping of our target competitions to API-Football league IDs
-const LEAGUE_IDS = [
-  39,  // PL
-  140, // PD
-  78,  // BL1
-  135, // SA
-  61,  // FL1
-  2,   // CL
-  40,  // ELC
-  94,  // PPL
-  88,  // DED
-  71,  // BSA
-  1,   // WC
-  4    // EC
-];
-
-const headers: HeadersInit = {
-  "x-apisports-key": process.env.API_FOOTBALL_KEY!,
-};
+// Optimized list of top leagues to stay within 100 req/day
+const LEAGUE_IDS = [39, 140, 135, 78, 61, 88, 94, 40, 71];
 
 /**
- * Sleep utility to respect rate limits
+ * Utility to sleep for rate limiting
  */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Fetch with retry logic for rate-limited API calls.
+ * Robust fetch with retries and API keys
  */
-async function fetchWithRetry(url: string, maxRetries: number = 3): Promise<any> {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const response = await fetch(url, { headers });
-    const data = await response.json();
-    
-    // API-Football specific rate limit checking
-    if (data.errors && data.errors.requests) {
-       console.warn(`[football] Rate limited on ${url}: ${data.errors.requests}`);
-       await sleep(5000);
-       continue;
-    }
+async function fetchWithRetry(url: string, retries = 3): Promise<any> {
+  const apiKey = process.env.API_FOOTBALL_KEY;
+  
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'x-apisports-key': apiKey || '',
+          'x-rapidapi-host': 'v3.football.api-sports.io'
+        },
+        next: { revalidate: 3600 }
+      });
 
-    const remainingStr = response.headers.get("x-ratelimit-requests-remaining");
-    const remaining = remainingStr ? parseInt(remainingStr, 10) : 100;
-    
-    if (remaining <= 10) {
-      console.warn(`[football] CRITICAL: Only ${remaining} daily requests remaining!`);
-    }
+      if (response.status === 429) {
+        await sleep(2000 * (i + 1));
+        continue;
+      }
 
-    return data;
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      
+      const data = await response.json();
+      return data;
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      await sleep(1000 * (i + 1));
+    }
   }
-  throw new Error(`[football] Max retries exceeded for ${url}`);
 }
 
 /**
- * Returns top matches scheduled for today (Capped at 15 to save API calls)
+ * Fetches top matches for today
  */
 export async function getTodaysMatches(): Promise<Match[]> {
-  const today = new Date().toISOString().split("T")[0];
+  const today = new Date().toISOString().split('T')[0];
+  const url = `${BASE_URL}/fixtures?date=${today}`;
   
-  const data = await fetchWithRetry(`${BASE_URL}/fixtures?date=${today}`);
+  const data = await fetchWithRetry(url);
   
-  if (!data || !data.response) {
-    return [];
-  }
-  
-  const allFixtures = data.response;
-  
-  // Filter for our target leagues
-  const targetFixtures = allFixtures.filter((f: any) => LEAGUE_IDS.includes(f.league.id));
-  
-  // Slice to max 15 to save API calls (1 fixture = 2 team stat calls)
-  // Max requests used per day will be 1 (fixtures) + 30 (stats) = 31 requests. Well within 100 limit.
-  const topFixtures = targetFixtures.slice(0, 15);
-  
-  return topFixtures.map((f: any) => ({
+  if (!data || !data.response) return [];
+
+  const filtered = data.response.filter((f: any) => {
+    return LEAGUE_IDS.includes(f.league.id);
+  });
+
+  const topMatches = filtered.slice(0, 15);
+
+  return topMatches.map((f: any) => ({
     id: f.fixture.id,
     competition: f.league.name,
     competitionCode: f.league.id.toString(),
-    utcDate: f.fixture.date,
     season: f.league.season,
+    utcDate: f.fixture.date,
     homeTeam: {
       id: f.teams.home.id,
       name: f.teams.home.name,
@@ -103,11 +85,31 @@ export async function getTodaysMatches(): Promise<Match[]> {
 }
 
 /**
- * Returns granular team statistics
+ * Returns granular team statistics.
+ * Automatically falls back to previous seasons if the requested one is restricted.
  */
 export async function getTeamStats(leagueId: string, teamId: number, season: number): Promise<TeamStats | null> {
-  const data = await fetchWithRetry(`${BASE_URL}/teams/statistics?league=${leagueId}&team=${teamId}&season=${season}`);
+  const seasonsToTry = [season, season - 1, 2024]; 
+  const seenSeasons = new Set<number>();
   
+  let data: any = null;
+
+  for (const s of seasonsToTry) {
+    if (seenSeasons.has(s) || s < 2020) continue;
+    seenSeasons.add(s);
+
+    const url = `${BASE_URL}/teams/statistics?league=${leagueId}&team=${teamId}&season=${s}`;
+    data = await fetchWithRetry(url);
+
+    if (data?.response?.fixtures?.played?.total > 0) {
+      break;
+    }
+
+    if (data?.errors?.plan) {
+      continue;
+    }
+  }
+
   if (!data || !data.response || !data.response.fixtures) {
     return null;
   }
@@ -117,75 +119,48 @@ export async function getTeamStats(leagueId: string, teamId: number, season: num
   const goals = stats.goals;
   
   const played = fix.played.total || 0;
-  if (played === 0) return null; // No stats yet
+  if (played === 0) return null;
   
   const won = fix.wins.total || 0;
   const draw = fix.draws.total || 0;
-  const lost = fix.loses.total || 0;
   
   const goalsFor = goals.for.total.total || 0;
   const goalsAgainst = goals.against.total.total || 0;
   
-  // API-Football returns Clean Sheets and Failed To Score
-  const cleanSheets = stats.clean_sheet.total || 0;
-  const failedToScore = stats.failed_to_score.total || 0;
-  
-  // Sum cards
-  let yellowCards = 0;
-  if (stats.cards && stats.cards.yellow) {
-     for (const key in stats.cards.yellow) {
-        yellowCards += (stats.cards.yellow[key].total || 0);
-     }
-  }
-  let redCards = 0;
-  if (stats.cards && stats.cards.red) {
-     for (const key in stats.cards.red) {
-        redCards += (stats.cards.red[key].total || 0);
-     }
-  }
-
   return {
-    id: stats.team.id,
+    id: teamId,
     name: stats.team.name,
     crest: stats.team.logo,
-    position: 0, // Using points as primary strength indicator to save /standings API calls
-    points: (won * 3) + draw,
+    position: 0,
     played,
     won,
     draw,
-    lost,
+    lost: fix.loses.total || 0,
+    points: (won * 3) + draw,
     goalsFor,
     goalsAgainst,
     goalDifference: goalsFor - goalsAgainst,
     form: stats.form || "",
-    cleanSheets,
-    failedToScore,
-    yellowCards,
-    redCards
+    cleanSheets: stats.clean_sheet.total || 0,
+    failedToScore: stats.failed_to_score.total || 0,
+    yellowCards: stats.cards?.yellow?.['0-15']?.total || 0,
+    redCards: stats.cards?.red?.['0-15']?.total || 0
   };
 }
 
 /**
- * Combines matches + stats into enriched Match objects.
+ * Main pipeline: fetches fixtures and then hydrates them with stats
  */
 export async function getEnrichedMatches(): Promise<Match[]> {
   const matches = await getTodaysMatches();
-
-  if (matches.length === 0) return [];
-
   const enriched: Match[] = [];
-  
+
+  console.log(`[football] Hydrating ${matches.length} matches with granular stats...`);
+
   for (const match of matches) {
-    if (!match.season || !match.homeTeam.id || !match.awayTeam.id) {
-       enriched.push(match);
-       continue;
-    }
-    
-    // Fetch home team stats
     const homeStats = await getTeamStats(match.competitionCode, match.homeTeam.id, match.season);
-    await sleep(500); // Small delay to prevent rapid burst
+    await sleep(500); 
     
-    // Fetch away team stats
     const awayStats = await getTeamStats(match.competitionCode, match.awayTeam.id, match.season);
     await sleep(500);
     

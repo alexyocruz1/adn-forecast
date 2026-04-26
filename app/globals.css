@@ -5,35 +5,50 @@
   --font-body: var(--font-dm-sans), sans-serif;
 
   --color-bg-primary: var(--bg-primary);
+  --color-bg-deep: var(--bg-deep);
   --color-bg-card: var(--bg-card);
   --color-bg-card-hover: var(--bg-card-hover);
   --color-border: var(--border);
   
-  --color-accent-green: var(--accent-green);
-  --color-accent-yellow: var(--accent-yellow);
-  --color-accent-blue: var(--accent-blue);
-  --color-accent-red: var(--accent-red);
+  --color-green-neon: var(--green-neon);
+  --color-green-glow: var(--green-glow);
+  --color-green-brand: var(--green-brand);
+  --color-green-dark: var(--green-dark);
 
   --color-text-primary: var(--text-primary);
-  --color-text-secondary: var(--text-secondary);
+  --color-text-soft: var(--text-soft);
   --color-text-muted: var(--text-muted);
+
+  --color-badge-home: var(--badge-home);
+  --color-badge-draw: var(--badge-draw);
+  --color-badge-away: var(--badge-away);
+  --color-badge-low: var(--badge-low);
 }
 
 :root {
-  /* Brand Palette - Change these to rebrand the entire site */
-  --bg-primary: #0a0e1a;        /* Near-black navy */
-  --bg-card: #111827;           /* Dark card background */
-  --bg-card-hover: #1a2236;
-  --border: #1f2937;
-  
-  --accent-green: #10b981;      /* HOME WIN */
-  --accent-yellow: #f59e0b;     /* DRAW */
-  --accent-blue: #3b82f6;       /* AWAY WIN */
-  --accent-red: #ef4444;        /* LOW confidence / error */
-  
-  --text-primary: #f9fafb;
-  --text-secondary: #9ca3af;
-  --text-muted: #4b5563;
+  /* --- BACKGROUNDS --- */
+  --bg-primary:      #000000;  /* <body> background, outermost page layer */
+  --bg-deep:         #0a0f0a;  /* <main> content area, section backgrounds */
+  --bg-card:         #111a11;  /* ForecastCard default background */
+  --bg-card-hover:   #1a2e1a;  /* ForecastCard background on :hover */
+  --border:          #1f2f1f;  /* All card borders, dividers, HR lines */
+
+  /* --- BRAND GREENS --- */
+  --green-neon:      #22ff55;  /* Tiny highlights: active dot, logo glow, focus ring */
+  --green-glow:      #4ade80;  /* Primary CTA buttons, HOME WIN badge, card left-bar */
+  --green-brand:     #16a34a;  /* Header accent, competition labels, links */
+  --green-dark:      #14532d;  /* Badge/chip backgrounds (so text stays readable) */
+
+  /* --- TEXT --- */
+  --text-primary:    #ffffff;  /* Team names, match titles, headings */
+  --text-soft:       #d1fae5;  /* Body text, reasoning paragraphs, subtitles */
+  --text-muted:      #6b7a6b;  /* Match time, competition name, "generated at" */
+
+  /* --- FORECAST BADGES --- */
+  --badge-home:      #4ade80;  /* prediction === "HOME"  → "Local" badge */
+  --badge-draw:      #facc15;  /* prediction === "DRAW"  → "Empate" badge */
+  --badge-away:      #38bdf8;  /* prediction === "AWAY"  → "Visitante" badge */
+  --badge-low:       #f87171;  /* confidence === "LOW"   → "Baja" chip */
 }
 
 body {
@@ -44,25 +59,25 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom utilities for prediction styles */
+/* Custom utilities for prediction styles using new badge colors */
 @layer utilities {
   .prediction-bar-home {
-    border-left: 4px solid var(--accent-green);
+    border-left: 4px solid var(--badge-home);
   }
   .prediction-bar-draw {
-    border-left: 4px solid var(--accent-yellow);
+    border-left: 4px solid var(--badge-draw);
   }
   .prediction-bar-away {
-    border-left: 4px solid var(--accent-blue);
+    border-left: 4px solid var(--badge-away);
   }
 
   .glow-home:hover {
-    box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+    box-shadow: 0 0 15px rgba(74, 222, 128, 0.2); /* --badge-home */
   }
   .glow-draw:hover {
-    box-shadow: 0 0 15px rgba(245, 158, 11, 0.2);
+    box-shadow: 0 0 15px rgba(250, 204, 21, 0.2); /* --badge-draw */
   }
   .glow-away:hover {
-    box-shadow: 0 0 15px rgba(59, 130, 246, 0.2);
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.2); /* --badge-away */
   }
 }
