@@ -1,5 +1,5 @@
 export interface TeamStats {
-  id?: number;
+  id: number;
   name: string;
   crest: string; // URL to team crest image
   position: number;
@@ -23,7 +23,7 @@ export interface Match {
   competition: string;
   competitionCode: string;
   utcDate: string; // ISO date string
-  season?: number;
+  season: number;
   homeTeam: TeamStats;
   awayTeam: TeamStats;
 }
