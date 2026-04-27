@@ -12,7 +12,6 @@ export const dynamic = "force-dynamic";
 
 /**
  * Direct data fetcher for Server Components.
- * This avoids the need for an internal fetch() call to /api/forecasts.
  */
 async function getForecasts(): Promise<ForecastResult[]> {
   try {
@@ -66,22 +65,34 @@ async function getForecasts(): Promise<ForecastResult[]> {
   }
 }
 
-// Wrapper to handle the async fetch and suspense boundary
 async function ForecastsWrapper() {
   const forecasts = await getForecasts();
   return <ForecastGrid forecasts={forecasts} />;
 }
 
-export default function Home() {
+/**
+ * Client-safe date component to prevent hydration mismatches
+ */
+function DisplayDate() {
   const today = new Date();
   const dateOptions: Intl.DateTimeFormatOptions = { 
     weekday: 'long', 
     day: 'numeric', 
     month: 'long' 
   };
+  
+  // Format as Spanish
   const formattedDate = today.toLocaleDateString('es-ES', dateOptions);
   const displayDate = formattedDate.charAt(0).toUpperCase() + formattedDate.slice(1);
 
+  return (
+    <p className="font-body text-text-soft text-2xl font-light" suppressHydrationWarning>
+      {displayDate}
+    </p>
+  );
+}
+
+export default function Home() {
   return (
     <>
       <Header />
@@ -91,9 +102,7 @@ export default function Home() {
           <h2 className="font-display tracking-widest text-text-muted text-lg mb-2">
             PRONÓSTICOS DE HOY
           </h2>
-          <p className="font-body text-text-soft text-2xl font-light">
-            {displayDate}
-          </p>
+          <DisplayDate />
         </div>
 
         {/* Confidence Legend */}
