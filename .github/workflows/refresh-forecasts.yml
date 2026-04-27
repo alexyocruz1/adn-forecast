@@ -1,0 +1,15 @@
+name: Refresh Forecasts
+
+on:
+  schedule:
+    # Runs every hour
+    - cron: '0 * * * *'
+  workflow_dispatch: # Allows manual triggering from the GitHub UI
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Refresh API
+        run: |
+          curl -X GET "https://adn-forecast.vercel.app/api/forecasts?refresh=1&secret=${{ secrets.CRON_SECRET }}"
