@@ -28,7 +28,12 @@ export async function GET(request: Request) {
     // 1. Check granular cache
     for (const match of matches) {
       const cached = await getMatchForecast(match.id);
-      const isPlaceholder = cached?.forecast.keyFactor === "AI Temporalmente no disponible";
+      
+      const isPlaceholder = 
+        !cached || 
+        cached.forecast.keyFactor === "AI Temporalmente no disponible" ||
+        cached.forecast.reasoning.includes("procesando") ||
+        cached.forecast.reasoning.includes("IA se está procesando");
       
       if (cached && !isPlaceholder && !forceRefresh) {
         finalForecasts.push(cached);

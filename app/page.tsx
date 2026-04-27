@@ -27,7 +27,13 @@ async function getForecasts(dateStr: string): Promise<ForecastResult[]> {
     // 2. Check each match in the cache
     for (const match of matches) {
       const cached = await getMatchForecast(match.id);
-      const isPlaceholder = cached?.forecast.keyFactor === "AI Temporalmente no disponible";
+      
+      // Robust check: It's a placeholder ONLY if it contains our specific error strings
+      const isPlaceholder = 
+        !cached || 
+        cached.forecast.keyFactor === "AI Temporalmente no disponible" ||
+        cached.forecast.reasoning.includes("procesando") ||
+        cached.forecast.reasoning.includes("IA se está procesando");
       
       if (cached && !isPlaceholder) {
         finalForecasts.push(cached);
