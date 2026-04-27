@@ -10,6 +10,21 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Refresh API
+      - name: Wake up Vercel deployment
         run: |
-          curl -X GET "https://adn-forecast.vercel.app/api/forecasts?refresh=1&secret=${{ secrets.CRON_SECRET }}"
+          echo "Pinging /api/health to warm up the serverless function..."
+          curl --fail --silent --show-error \
+            "https://adn-forecast.vercel.app/api/health"
+          echo " ✅ Warm-up complete."
+
+      - name: Wait for full initialization
+        run: sleep 5
+
+      - name: Run forecast refresh pipeline
+        run: |
+          echo "Triggering /api/cron..."
+          RESPONSE=$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://adn-forecast.vercel.app/api/cron")
+          echo "Response: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"success":true' && echo "✅ Cron succeeded." || (echo "❌ Cron failed." && exit 1)

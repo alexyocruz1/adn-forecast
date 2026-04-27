@@ -2,127 +2,48 @@ import { Suspense } from "react";
 import Header from "@/components/Header";
 import ForecastGrid from "@/components/ForecastGrid";
 import LoadingState from "@/components/LoadingState";
-import { getMatchForecast, setMatchForecast, setCachedForecasts } from "@/lib/cache";
-import { getEnrichedMatches } from "@/lib/football";
-import { generateBatchForecasts } from "@/lib/gemini";
+import { getCachedForecasts } from "@/lib/cache";
 import { ForecastResult } from "@/lib/types";
-import { kv } from "@vercel/kv";
 
-// Force dynamic
-export const dynamic = "force-dynamic";
+// Revalidate every 5 minutes at the edge — the cron job updates KV,
+// so a short revalidation window is enough for freshness without user-triggered API calls.
+export const revalidate = 300;
 
 /**
- * Direct data fetcher with Granular Match-Level Caching.
- * Only asks AI for matches that don't have a "Full" forecast yet.
+ * Pure cache reader. ZERO external API calls.
+ * All data is pre-populated by the GitHub Actions cron job via /api/cron.
  */
 async function getForecasts(dateStr: string): Promise<ForecastResult[]> {
   try {
-    // 1. Get current matches for today
-    const matches = await getEnrichedMatches();
-    if (matches.length === 0) return [];
-
-    const finalForecasts: ForecastResult[] = [];
-    const missingMatches = [];
-
-    // 2. Check each match in the cache
-    for (const match of matches) {
-      const cached = await getMatchForecast(match.id);
-      
-      // Robust check: It's a placeholder ONLY if it contains our specific error strings
-      const isPlaceholder = 
-        !cached || 
-        cached.forecast.keyFactor === "AI Temporalmente no disponible" ||
-        cached.forecast.reasoning.includes("procesando") ||
-        cached.forecast.reasoning.includes("IA se está procesando");
-      
-      if (cached && !isPlaceholder) {
-        finalForecasts.push(cached);
-      } else {
-        missingMatches.push(match);
-      }
-    }
-
-    // 3. If everything is in cache, return early
-    if (missingMatches.length === 0) {
-      return finalForecasts.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
-    }
-
-    // 4. Lock check for the missing matches
-    const lockKey = `lock:forecasts:${dateStr}`;
-    const isLocked = await kv.get(lockKey);
-    if (isLocked) {
-      console.log(`[page] Generation in progress, serving partial list...`);
-      return matches.map(m => {
-        const found = finalForecasts.find(f => f.matchId === m.id);
-        return (found || {
-          matchId: m.id, competition: m.competition, competitionCode: m.competitionCode,
-          utcDate: m.utcDate, homeTeam: m.homeTeam, awayTeam: m.awayTeam,
-          forecast: {
-            matchWinner: "DRAW" as "DRAW" | "HOME" | "AWAY",
-            doubleChance: "1X" as "1X" | "X2" | "12",
-            overUnder25: "UNDER" as "OVER" | "UNDER",
-            btts: "NO" as "YES" | "NO",
-            homeCleanSheet: "NO" as "YES" | "NO",
-            awayCleanSheet: "NO" as "YES" | "NO",
-            confidence: "LOW" as "HIGH" | "MEDIUM" | "LOW",
-            reasoning: "Generando pronóstico...", scoreSuggestion: "0-0",
-            keyFactor: "AI Temporalmente no disponible"
-          },
-          generatedAt: new Date().toISOString()
-        }) as ForecastResult;
-      }).sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
-    }
-
-    // 5. Generate forecasts ONLY for the missing ones
-    // We use a 60s lock to match the Vercel timeout
-    await kv.set(lockKey, "generating", { ex: 60 });
-    
-    try {
-      console.log(`[page] Healing forecasts for ${missingMatches.length} missing matches...`);
-      const batchResults = await generateBatchForecasts(missingMatches);
-
-      for (const match of missingMatches) {
-        const forecast = batchResults.get(match.id);
-        const result: ForecastResult = {
-          matchId: match.id, competition: match.competition, competitionCode: match.competitionCode,
-          utcDate: match.utcDate, homeTeam: match.homeTeam, awayTeam: match.awayTeam,
-          forecast: forecast || {
-            matchWinner: "DRAW" as "DRAW" | "HOME" | "AWAY",
-            doubleChance: "1X" as "1X" | "X2" | "12",
-            overUnder25: "UNDER" as "OVER" | "UNDER",
-            btts: "NO" as "YES" | "NO",
-            homeCleanSheet: "NO" as "YES" | "NO",
-            awayCleanSheet: "NO" as "YES" | "NO",
-            confidence: "LOW" as "HIGH" | "MEDIUM" | "LOW",
-            reasoning: "El análisis de IA se está procesando.",
-            scoreSuggestion: "0-0",
-            keyFactor: "AI Temporalmente no disponible"
-          },
-          generatedAt: new Date().toISOString()
-        };
-        
-        await setMatchForecast(match.id, result);
-        finalForecasts.push(result);
-      }
-      
-      await setCachedForecasts(dateStr, finalForecasts);
-      await kv.del(lockKey);
-      
-      return finalForecasts.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
-    } catch (innerError) {
-      await kv.del(lockKey);
-      throw innerError;
-    }
+    const cached = await getCachedForecasts(dateStr);
+    return cached ?? [];
   } catch (error) {
-    console.error("[page] Error loading forecasts:", error);
+    console.error("[page] Error reading forecasts from cache:", error);
     return [];
   }
 }
 
+
 async function ForecastsWrapper({ dateStr }: { dateStr: string }) {
   const forecasts = await getForecasts(dateStr);
+
+  if (forecasts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center gap-4">
+        <div className="text-5xl">⚽</div>
+        <h3 className="font-display text-text-primary text-xl tracking-wide">
+          Pronósticos en preparación
+        </h3>
+        <p className="font-body text-text-muted text-sm max-w-sm">
+          Nuestro sistema está procesando los análisis de hoy. Vuelve en unos minutos.
+        </p>
+      </div>
+    );
+  }
+
   return <ForecastGrid forecasts={forecasts} />;
 }
+
 
 function DisplayDate({ dateStr }: { dateStr: string }) {
   const [year, month, day] = dateStr.split('-').map(Number);
