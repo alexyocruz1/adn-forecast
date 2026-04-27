@@ -1,84 +1,68 @@
+import { kv } from "@vercel/kv";
 import { ForecastResult } from "./types";
 
-const CACHE_KEY_PREFIX = "forecasts";
-const TTL_SECONDS = 60 * 60 * 24; // 24 hours
-
-// In-memory fallback cache for local development without Vercel KV
-const memoryCache = new Map<string, string>();
-
 /**
- * Check if Vercel KV is available (env vars are set).
+ * Gets a specific match forecast from cache
  */
-function isKvAvailable(): boolean {
-  return !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+export async function getMatchForecast(matchId: number): Promise<ForecastResult | null> {
+  try {
+    return await kv.get(`forecast:match:${matchId}`);
+  } catch (error) {
+    console.error(`[cache] Error getting match ${matchId}:`, error);
+    return null;
+  }
 }
 
 /**
- * Get the KV client dynamically (only imported when available).
+ * Stores a single match forecast
  */
-async function getKvClient() {
-  const { kv } = await import("@vercel/kv");
-  return kv;
+export async function setMatchForecast(matchId: number, forecast: ForecastResult): Promise<void> {
+  try {
+    // Expire match forecasts after 36 hours (enough for the game day)
+    await kv.set(`forecast:match:${matchId}`, forecast, { ex: 36 * 3600 });
+  } catch (error) {
+    console.error(`[cache] Error setting match ${matchId}:`, error);
+  }
 }
 
 /**
- * Retrieve cached forecasts for a given date.
- * Falls back to in-memory cache if Vercel KV is not configured.
+ * Legacy: Gets daily forecasts (updated to use the new match-level logic)
  */
-export async function getCachedForecasts(
-  date: string
-): Promise<ForecastResult[] | null> {
-  const key = `${CACHE_KEY_PREFIX}:${date}`;
+export async function getCachedForecasts(date: string): Promise<ForecastResult[] | null> {
+  try {
+    const ids = await kv.get<number[]>(`forecasts:ids:${date}`);
+    if (!ids || ids.length === 0) return null;
 
-  if (isKvAvailable()) {
-    try {
-      const kvClient = await getKvClient();
-      const data = await kvClient.get<ForecastResult[]>(key);
-      return data || null;
-    } catch (error) {
-      console.error("[cache] KV read error:", error);
-      // Fall through to memory cache
+    const forecasts: ForecastResult[] = [];
+    for (const id of ids) {
+      const f = await getMatchForecast(id);
+      if (f) forecasts.push(f);
     }
+    
+    return forecasts.length > 0 ? forecasts : null;
+  } catch (error) {
+    console.error("[cache] Error getting daily forecasts:", error);
+    return null;
   }
-
-  // In-memory fallback
-  const cached = memoryCache.get(key);
-  if (cached) {
-    try {
-      return JSON.parse(cached) as ForecastResult[];
-    } catch {
-      return null;
-    }
-  }
-
-  return null;
 }
 
 /**
- * Store forecasts for a given date.
- * Falls back to in-memory cache if Vercel KV is not configured.
+ * Legacy: Sets daily forecasts (updated to use the new match-level logic)
  */
-export async function setCachedForecasts(
-  date: string,
-  data: ForecastResult[]
-): Promise<void> {
-  const key = `${CACHE_KEY_PREFIX}:${date}`;
-
-  if (isKvAvailable()) {
-    try {
-      const kvClient = await getKvClient();
-      await kvClient.set(key, data, { ex: TTL_SECONDS });
-      console.log(`[cache] Stored ${data.length} forecasts in KV for ${date}`);
-      return;
-    } catch (error) {
-      console.error("[cache] KV write error:", error);
-      // Fall through to memory cache
+export async function setCachedForecasts(date: string, forecasts: ForecastResult[]): Promise<void> {
+  try {
+    const ids = forecasts.map(f => f.matchId);
+    
+    // 1. Save individual matches
+    for (const f of forecasts) {
+      // Don't save placeholders permanently if we have a choice, 
+      // but save them to prevent infinite loops during a single session
+      await setMatchForecast(f.matchId, f);
     }
+    
+    // 2. Save the index for this day
+    await kv.set(`forecasts:ids:${date}`, ids, { ex: 48 * 3600 });
+  } catch (error) {
+    console.error("[cache] Error setting daily forecasts:", error);
   }
-
-  // In-memory fallback
-  memoryCache.set(key, JSON.stringify(data));
-  console.log(
-    `[cache] Stored ${data.length} forecasts in memory for ${date}`
-  );
 }

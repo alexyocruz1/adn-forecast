@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { getEnrichedMatches } from "@/lib/football";
 import { generateBatchForecasts } from "@/lib/gemini";
-import { getCachedForecasts, setCachedForecasts } from "@/lib/cache";
+import { getMatchForecast, setMatchForecast, setCachedForecasts } from "@/lib/cache";
 import { ForecastResult } from "@/lib/types";
 
-export const revalidate = 0; // Never cache this route at the CDN level
-export const maxDuration = 60; // Allow maximum serverless execution time
+export const revalidate = 0; 
+export const maxDuration = 60; 
 
 export async function GET(request: Request) {
   try {
@@ -13,76 +13,66 @@ export async function GET(request: Request) {
     const forceRefresh = searchParams.get("refresh") === "1";
     const secret = searchParams.get("secret");
 
-    // 0. Security check for forced refresh or cron usage
+    // 0. Security
     if (forceRefresh && secret !== process.env.CRON_SECRET) {
-      console.warn("[forecasts] Unauthorized refresh attempt");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // 1. Get today's date (UTC)
     const today = new Date().toISOString().split("T")[0];
+    const matches = await getEnrichedMatches();
+    if (matches.length === 0) return NextResponse.json({ forecasts: [] });
 
-    // 2. Try to read from cache (unless forced refresh)
-    if (!forceRefresh) {
-      const cached = await getCachedForecasts(today);
+    const finalForecasts: ForecastResult[] = [];
+    const missingMatches = [];
+
+    // 1. Check granular cache
+    for (const match of matches) {
+      const cached = await getMatchForecast(match.id);
+      const isPlaceholder = cached?.forecast.keyFactor === "AI Temporalmente no disponible";
       
-      // Check if cache contains placeholders
-      const isPlaceholder = cached?.some(f => f.forecast.keyFactor === "AI Temporalmente no disponible");
-      
-      if (cached && !isPlaceholder) {
-        console.log(`[forecasts] Cache hit (Full) for ${today}`);
-        return NextResponse.json({ forecasts: cached, fromCache: true });
+      if (cached && !isPlaceholder && !forceRefresh) {
+        finalForecasts.push(cached);
+      } else {
+        missingMatches.push(match);
       }
     }
 
-    // 3. Cache miss or refresh — generate forecasts
-    console.log(`[forecasts] Generating/Healing for ${today}...`);
-    const matches = await getEnrichedMatches();
-
-    if (matches.length === 0) {
-      return NextResponse.json({ forecasts: [], fromCache: false });
+    // 2. If nothing missing, return cache
+    if (missingMatches.length === 0) {
+      return NextResponse.json({ forecasts: finalForecasts, fromCache: true });
     }
 
-    // 4. Generate forecast for all matches
-    console.log(`[forecasts] Sending ${matches.length} matches to Gemini...`);
-    const batchResults = await generateBatchForecasts(matches);
+    // 3. Generate only what is missing
+    console.log(`[api] Generating ${missingMatches.length} missing forecasts...`);
+    const batchResults = await generateBatchForecasts(missingMatches);
 
-    const forecasts: ForecastResult[] = [];
-    for (const match of matches) {
+    for (const match of missingMatches) {
       const forecast = batchResults.get(match.id);
-      
-      forecasts.push({
-        matchId: match.id,
-        competition: match.competition,
-        competitionCode: match.competitionCode,
-        utcDate: match.utcDate,
-        homeTeam: match.homeTeam,
-        awayTeam: match.awayTeam,
+      const result: ForecastResult = {
+        matchId: match.id, competition: match.competition, competitionCode: match.competitionCode,
+        utcDate: match.utcDate, homeTeam: match.homeTeam, awayTeam: match.awayTeam,
         forecast: forecast || {
-          matchWinner: "DRAW",
-          doubleChance: "1X",
-          overUnder25: "UNDER",
-          btts: "NO",
-          homeCleanSheet: "NO",
-          awayCleanSheet: "NO",
-          confidence: "LOW",
-          reasoning: "El análisis de IA se está procesando. Por favor, consulta más tarde.",
-          scoreSuggestion: "0-0",
+          matchWinner: "DRAW", doubleChance: "1X", overUnder25: "UNDER", btts: "NO",
+          homeCleanSheet: "NO", awayCleanSheet: "NO", confidence: "LOW",
+          reasoning: "El análisis de IA se está procesando.", scoreSuggestion: "0-0",
           keyFactor: "AI Temporalmente no disponible"
         },
-        generatedAt: new Date().toISOString(),
-      });
+        generatedAt: new Date().toISOString()
+      };
+      
+      await setMatchForecast(match.id, result);
+      finalForecasts.push(result);
     }
 
-    // 5. Store in cache
-    await setCachedForecasts(today, forecasts);
+    // 4. Update index
+    await setCachedForecasts(today, finalForecasts);
 
-    return NextResponse.json({ forecasts, fromCache: false });
+    return NextResponse.json({ 
+      forecasts: finalForecasts.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime()), 
+      fromCache: false 
+    });
   } catch (error) {
     console.error("[forecasts] Error:", error);
-    return NextResponse.json(
-      { error: "Failed to generate forecasts", forecasts: [] },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal Error" }, { status: 500 });
   }
 }
