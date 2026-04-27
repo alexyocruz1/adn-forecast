@@ -26,9 +26,10 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
 
     INSTRUCCIONES DE ANÁLISIS:
     1. Evalúa la 'forma' (WWDLW) y la posición en la tabla.
-    2. Usa el promedio de goles anotados (goalsFor) y recibidos (goalsAgainst) para determinar el Over/Under, btts, y Clean Sheets.
-    3. ESTILO DE REDACCIÓN: Profesional, analítico y elegante. Usa términos como "jerarquía", "solvencia defensiva", "asedio ofensivo", "transiciones rápidas" o "vulnerabilidad".
-    4. ESTRUCTURA DEL RAZONAMIENTO: [Momento actual de los equipos] + [Dato estadístico clave] + [Por qué ocurrirá el resultado sugerido].
+    2. FACTOR DE SUPERVIVENCIA: Si se han jugado > 65% de los partidos de la temporada y un equipo está en las últimas 5 posiciones, considera su "urgencia por no descender". Estos equipos suelen rendir por encima de su nivel estadístico por pura motivación.
+    3. Usa el promedio de goles anotados (goalsFor) y recibidos (goalsAgainst) para determinar el Over/Under, btts, y Clean Sheets.
+    4. ESTILO DE REDACCIÓN: Profesional, analítico y elegante (ej: jerarquía, solvencia, asedio, vulnerabilidad).
+    5. ESTRUCTURA DEL RAZONAMIENTO: [Momento actual de los equipos] + [Dato estadístico clave] + [Por qué ocurrirá el resultado sugerido].
 
     REGLAS DE CONSISTENCIA (OBLIGATORIAS):
     - Si scoreSuggestion suma > 2.5 goles, overUnder25 DEBE ser "OVER".
@@ -53,7 +54,6 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
     }
   `;
 
-  // We send MORE stats now to the AI
   const matchesData = matches.map(m => ({
     matchId: m.id,
     match: `${m.homeTeam.name} vs ${m.awayTeam.name}`,
@@ -63,6 +63,7 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
         form: m.homeTeam.form,
         position: m.homeTeam.position,
         points: m.homeTeam.points,
+        played: m.homeTeam.played,
         goalsFor: m.homeTeam.goalsFor,
         goalsAgainst: m.homeTeam.goalsAgainst,
         goalDifference: m.homeTeam.goalDifference
@@ -71,6 +72,7 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
         form: m.awayTeam.form,
         position: m.awayTeam.position,
         points: m.awayTeam.points,
+        played: m.awayTeam.played,
         goalsFor: m.awayTeam.goalsFor,
         goalsAgainst: m.awayTeam.goalsAgainst,
         goalDifference: m.awayTeam.goalDifference
@@ -86,11 +88,11 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
       const model = genAI.getGenerativeModel({
         model: modelName,
         generationConfig: {
-          temperature: 0.1, // High consistency
+          temperature: 0.1,
           topP: 0.95,
           topK: 40,
           maxOutputTokens: 2048,
-          responseMimeType: "application/json", // Native JSON mode
+          responseMimeType: "application/json",
         }
       });
 
