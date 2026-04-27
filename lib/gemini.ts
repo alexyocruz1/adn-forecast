@@ -12,18 +12,37 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
  * Generates forecasts for a batch of matches with model fallback and retries.
  */
 export async function generateBatchForecasts(matches: Match[], retries = 3): Promise<Map<number, ForecastResult["forecast"]>> {
-  // Verfied most stable model names
-  const models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+  const models = [
+    "gemini-2.0-flash", 
+    "gemini-2.5-flash", 
+    "gemini-flash-latest",
+    "gemini-2.0-flash-lite",
+    "gemini-pro-latest"
+  ];
   
   const systemPrompt = `
-    Eres "Antigravity", el motor de IA de ADN Futbolero, un experto analista de apuestas deportivas con un estilo directo, premium y profesional.
-    Tu tarea es generar pronósticos precisos para una lista de partidos de fútbol.
+    Eres "Antigravity", el experto analista de apuestas de ADN Futbolero. 
+    Tu tarea es generar pronósticos precisos y consistentes.
 
-    REGLAS CRÍTICAS DE ANÁLISIS:
-    1. LÓGICA DE CONSISTENCIA: Todas las predicciones de un partido DEBEN ser matemáticamente consistentes con el 'scoreSuggestion'.
-    2. TONO PROFESIONAL: NUNCA menciones que te faltan datos o que el pronóstico es una conjetura.
-    3. IDIOMA: Todo el contenido de texto debe estar en ESPAÑOL neutro y motivador.
-    4. FORMATO: Responde ÚNICAMENTE con un objeto JSON donde las llaves sean los matchId.
+    REGLAS DE FORMATO (ESTRICTO):
+    Responde ÚNICAMENTE con un JSON donde las llaves sean los matchId y el valor sea un objeto con este esquema EXACTO:
+    {
+      "matchWinner": "HOME" | "AWAY" | "DRAW",
+      "doubleChance": "1X" | "X2" | "12",
+      "overUnder25": "OVER" | "UNDER",
+      "btts": "YES" | "NO",
+      "homeCleanSheet": "YES" | "NO",
+      "awayCleanSheet": "YES" | "NO",
+      "confidence": "HIGH" | "MEDIUM" | "LOW",
+      "reasoning": "Texto breve y profesional (Máx 200 caracteres)",
+      "scoreSuggestion": "Ej: 2-1",
+      "keyFactor": "Frase corta del factor clave"
+    }
+
+    REGLAS DE LÓGICA:
+    1. Si scoreSuggestion es 1-0, overUnder25 DEBE ser "UNDER".
+    2. Si scoreSuggestion es 2-1, btts DEBE ser "YES".
+    3. NO menciones falta de datos.
   `;
 
   const matchesData = matches.map(m => ({
@@ -36,7 +55,7 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
     }
   }));
 
-  const userPrompt = `Analiza estos partidos y genera el JSON de pronósticos:\n${JSON.stringify(matchesData, null, 2)}`;
+  const userPrompt = `Genera el JSON de pronósticos para estos partidos:\n${JSON.stringify(matchesData, null, 2)}`;
 
   for (const modelName of models) {
     try {
@@ -60,19 +79,23 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
           console.log(`[gemini] Success with ${modelName}`);
           return resultMap;
         } catch (error: any) {
-          if (error.status === 429 || error.message?.includes("429")) {
+          const status = error.status || "UNKNOWN";
+          const message = error.message || "No error message";
+          
+          if (status === 429 || message.includes("429")) {
             console.warn(`[gemini] ${modelName} rate limit hit, retry ${i + 1}/${retries}...`);
             if (i < retries - 1) {
-              await sleep(5000 * (i + 1));
+              await sleep(1000 * (i + 1));
               continue;
             }
-          } else {
-            throw error; 
-          }
+          } 
+          
+          console.warn(`[gemini] ${modelName} attempt failed: ${message.substring(0, 100)}...`);
+          break; 
         }
       }
     } catch (modelError: any) {
-      console.warn(`[gemini] Skipping model ${modelName} due to error: ${modelError.message}`);
+      console.warn(`[gemini] Setup error for ${modelName}: ${modelError.message}`);
       continue; 
     }
   }
