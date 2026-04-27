@@ -10,11 +10,12 @@ export const maxDuration = 60;
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const forceRefresh = searchParams.get("refresh") === "1";
+    const forceOverwrite = searchParams.get("force") === "1";
+    const refreshNeeded = searchParams.get("refresh") === "1";
     const secret = searchParams.get("secret");
 
     // 0. Security
-    if (forceRefresh && secret !== process.env.CRON_SECRET) {
+    if ((refreshNeeded || forceOverwrite) && secret !== process.env.CRON_SECRET) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -35,9 +36,11 @@ export async function GET(request: Request) {
         cached.forecast.reasoning.includes("procesando") ||
         cached.forecast.reasoning.includes("IA se está procesando");
       
-      if (cached && !isPlaceholder && !forceRefresh) {
+      // If we have a real forecast and we are NOT forcing an overwrite, use it.
+      if (cached && !isPlaceholder && !forceOverwrite) {
         finalForecasts.push(cached);
       } else {
+        // It's either missing, a placeholder, or we are forcing a full refresh
         missingMatches.push(match);
       }
     }
