@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import Header from "@/components/Header";
 import ForecastGrid from "@/components/ForecastGrid";
 import LoadingState from "@/components/LoadingState";
-import { getMatchForecast, setMatchForecast, setCachedForecasts, getCachedForecasts } from "@/lib/cache";
+import { getMatchForecast, setMatchForecast, setCachedForecasts } from "@/lib/cache";
 import { getEnrichedMatches } from "@/lib/football";
 import { generateBatchForecasts } from "@/lib/gemini";
 import { ForecastResult } from "@/lib/types";
@@ -27,8 +27,6 @@ async function getForecasts(dateStr: string): Promise<ForecastResult[]> {
     // 2. Check each match in the cache
     for (const match of matches) {
       const cached = await getMatchForecast(match.id);
-      
-      // If we have a FULL forecast (not a placeholder), we use it!
       const isPlaceholder = cached?.forecast.keyFactor === "AI Temporalmente no disponible";
       
       if (cached && !isPlaceholder) {
@@ -40,36 +38,41 @@ async function getForecasts(dateStr: string): Promise<ForecastResult[]> {
 
     // 3. If everything is in cache, return early
     if (missingMatches.length === 0) {
-      console.log(`[page] All ${matches.length} matches served from granular cache.`);
-      return finalForecasts;
+      return finalForecasts.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
     }
 
     // 4. Lock check for the missing matches
     const lockKey = `lock:forecasts:${dateStr}`;
     const isLocked = await kv.get(lockKey);
     if (isLocked) {
-      console.log(`[page] Generation in progress, serving what we have...`);
-      // We return the partial list + placeholders for missing to keep UI consistent
+      console.log(`[page] Generation in progress, serving partial list...`);
       return matches.map(m => {
         const found = finalForecasts.find(f => f.matchId === m.id);
-        return found || {
+        return (found || {
           matchId: m.id, competition: m.competition, competitionCode: m.competitionCode,
           utcDate: m.utcDate, homeTeam: m.homeTeam, awayTeam: m.awayTeam,
           forecast: {
-            matchWinner: "DRAW", doubleChance: "1X", overUnder25: "UNDER", btts: "NO",
-            homeCleanSheet: "NO", awayCleanSheet: "NO", confidence: "LOW",
+            matchWinner: "DRAW" as "DRAW" | "HOME" | "AWAY",
+            doubleChance: "1X" as "1X" | "X2" | "12",
+            overUnder25: "UNDER" as "OVER" | "UNDER",
+            btts: "NO" as "YES" | "NO",
+            homeCleanSheet: "NO" as "YES" | "NO",
+            awayCleanSheet: "NO" as "YES" | "NO",
+            confidence: "LOW" as "HIGH" | "MEDIUM" | "LOW",
             reasoning: "Generando pronóstico...", scoreSuggestion: "0-0",
             keyFactor: "AI Temporalmente no disponible"
           },
           generatedAt: new Date().toISOString()
-        };
-      });
+        }) as ForecastResult;
+      }).sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
     }
 
     // 5. Generate forecasts ONLY for the missing ones
+    // We use a 60s lock to match the Vercel timeout
     await kv.set(lockKey, "generating", { ex: 60 });
+    
     try {
-      console.log(`[page] Generating forecasts for ${missingMatches.length} missing matches...`);
+      console.log(`[page] Healing forecasts for ${missingMatches.length} missing matches...`);
       const batchResults = await generateBatchForecasts(missingMatches);
 
       for (const match of missingMatches) {
@@ -78,24 +81,27 @@ async function getForecasts(dateStr: string): Promise<ForecastResult[]> {
           matchId: match.id, competition: match.competition, competitionCode: match.competitionCode,
           utcDate: match.utcDate, homeTeam: match.homeTeam, awayTeam: match.awayTeam,
           forecast: forecast || {
-            matchWinner: "DRAW", doubleChance: "1X", overUnder25: "UNDER", btts: "NO",
-            homeCleanSheet: "NO", awayCleanSheet: "NO", confidence: "LOW",
-            reasoning: "El análisis de IA se está procesando.", scoreSuggestion: "0-0",
+            matchWinner: "DRAW" as "DRAW" | "HOME" | "AWAY",
+            doubleChance: "1X" as "1X" | "X2" | "12",
+            overUnder25: "UNDER" as "OVER" | "UNDER",
+            btts: "NO" as "YES" | "NO",
+            homeCleanSheet: "NO" as "YES" | "NO",
+            awayCleanSheet: "NO" as "YES" | "NO",
+            confidence: "LOW" as "HIGH" | "MEDIUM" | "LOW",
+            reasoning: "El análisis de IA se está procesando.",
+            scoreSuggestion: "0-0",
             keyFactor: "AI Temporalmente no disponible"
           },
           generatedAt: new Date().toISOString()
         };
         
-        // Save individually!
         await setMatchForecast(match.id, result);
         finalForecasts.push(result);
       }
       
-      // Update the daily index
       await setCachedForecasts(dateStr, finalForecasts);
       await kv.del(lockKey);
       
-      // Sort by date to keep consistent UI
       return finalForecasts.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
     } catch (innerError) {
       await kv.del(lockKey);

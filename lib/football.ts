@@ -1,17 +1,15 @@
 import { TeamStats, Match } from "./types";
 
 const BASE_URL = "https://api.football-data.org/v4";
-
-// Target leagues (football-data.org codes)
 const TARGET_LEAGUES = ["PL", "PD", "SA", "BL1", "FL1", "DED", "PPL", "ELC", "BSA"];
 
 /**
- * Utility to sleep for rate limiting (football-data has a strict 10 req/min limit on free tier)
+ * Utility to sleep for rate limiting
  */
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Robust fetch with X-Auth-Token
+ * Robust fetch with X-Auth-Token and 429 handling
  */
 async function fetchWithRetry(endpoint: string, retries = 3): Promise<any> {
   const apiKey = process.env.FOOTBALL_DATA_API_KEY;
@@ -25,13 +23,14 @@ async function fetchWithRetry(endpoint: string, retries = 3): Promise<any> {
       });
 
       if (response.status === 429) {
-        console.warn(`[football] Rate limit hit (football-data), sleeping...`);
-        await sleep(60000); 
+        const retryAfter = response.headers.get("Retry-After");
+        const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : 15000;
+        console.warn(`[football] Rate limit hit on ${endpoint}, waiting ${waitTime}ms...`);
+        await sleep(waitTime);
         continue;
       }
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      
       return await response.json();
     } catch (err) {
       if (i === retries - 1) throw err;
@@ -41,65 +40,57 @@ async function fetchWithRetry(endpoint: string, retries = 3): Promise<any> {
 }
 
 /**
- * Fetches today's matches for all tracked leagues by querying each league individually.
- * This bypasses the restrictions on the global /matches endpoint.
+ * Fetches today's matches for a specific league
+ */
+async function getLeagueMatches(leagueCode: string, date: string): Promise<Match[]> {
+  try {
+    const data = await fetchWithRetry(`/competitions/${leagueCode}/matches?dateFrom=${date}&dateTo=${date}`);
+    if (!data || !data.matches) return [];
+
+    return data.matches.map((m: any) => ({
+      id: m.id,
+      competition: m.competition.name,
+      competitionCode: m.competition.code,
+      utcDate: m.utcDate,
+      season: m.season.startYear,
+      homeTeam: {
+        id: m.homeTeam.id, name: m.homeTeam.name, crest: m.homeTeam.crest,
+        position: 0, points: 0, played: 0, won: 0, draw: 0, lost: 0,
+        goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "",
+        cleanSheets: 0, failedToScore: 0, yellowCards: 0, redCards: 0
+      },
+      awayTeam: {
+        id: m.awayTeam.id, name: m.awayTeam.name, crest: m.awayTeam.crest,
+        position: 0, points: 0, played: 0, won: 0, draw: 0, lost: 0,
+        goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "",
+        cleanSheets: 0, failedToScore: 0, yellowCards: 0, redCards: 0
+      }
+    }));
+  } catch (error) {
+    console.error(`[football] Error in league ${leagueCode}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Fetches today's matches using parallel requests
  */
 export async function getTodaysMatches(): Promise<Match[]> {
   const today = new Date().toISOString().split('T')[0];
-  const allMatches: Match[] = [];
+  console.log(`[football] Searching for matches on ${today} in parallel...`);
 
-  console.log(`[football] Fetching matches for ${TARGET_LEAGUES.length} leagues...`);
+  // Run all league queries simultaneously
+  const results = await Promise.all(
+    TARGET_LEAGUES.map(code => getLeagueMatches(code, today))
+  );
 
-  for (const leagueCode of TARGET_LEAGUES) {
-    try {
-      const data = await fetchWithRetry(`/competitions/${leagueCode}/matches?dateFrom=${today}&dateTo=${today}`);
-      
-      if (data && data.matches) {
-        const mapped = data.matches.map((m: any) => ({
-          id: m.id,
-          competition: m.competition.name,
-          competitionCode: m.competition.code,
-          utcDate: m.utcDate,
-          season: m.season.startYear,
-          homeTeam: {
-            id: m.homeTeam.id,
-            name: m.homeTeam.name,
-            crest: m.homeTeam.crest,
-            position: 0, points: 0, played: 0, won: 0, draw: 0, lost: 0,
-            goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "",
-            cleanSheets: 0, failedToScore: 0, yellowCards: 0, redCards: 0
-          },
-          awayTeam: {
-            id: m.awayTeam.id,
-            name: m.awayTeam.name,
-            crest: m.awayTeam.crest,
-            position: 0, points: 0, played: 0, won: 0, draw: 0, lost: 0,
-            goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "",
-            cleanSheets: 0, failedToScore: 0, yellowCards: 0, redCards: 0
-          }
-        }));
-        allMatches.push(...mapped);
-      }
-      
-      // Respect the 10 req/min limit (6 seconds between requests)
-      await sleep(6500); 
-    } catch (error) {
-      console.error(`[football] Error fetching matches for ${leagueCode}:`, error);
-    }
-  }
-
+  const allMatches = results.flat();
+  console.log(`[football] Found ${allMatches.length} total matches.`);
   return allMatches;
 }
 
 /**
- * Hydrates team stats from league standings
- */
-async function getLeagueStandings(leagueCode: string): Promise<any> {
-  return await fetchWithRetry(`/competitions/${leagueCode}/standings`);
-}
-
-/**
- * Main pipeline: fetches fixtures and hydrates with standings data
+ * Hydrates matches with standings
  */
 export async function getEnrichedMatches(): Promise<Match[]> {
   const matches = await getTodaysMatches();
@@ -108,37 +99,32 @@ export async function getEnrichedMatches(): Promise<Match[]> {
   const enriched: Match[] = [];
   const standingsCache = new Map<string, any>();
 
-  console.log(`[football] Hydrating ${matches.length} matches from standings...`);
+  // Only hydrate leagues that actually have matches today
+  const activeLeagues = Array.from(new Set(matches.map(m => m.competitionCode)));
+  
+  console.log(`[football] Hydrating matches for ${activeLeagues.length} active leagues...`);
 
   for (const match of matches) {
-    // 1. Get standings for this competition (using cache to save requests)
     let standings = standingsCache.get(match.competitionCode);
     if (!standings) {
-      standings = await getLeagueStandings(match.competitionCode);
+      standings = await fetchWithRetry(`/competitions/${match.competitionCode}/standings`);
       standingsCache.set(match.competitionCode, standings);
-      await sleep(6500); 
+      // Small sleep between standings to avoid hitting the 10/min burst limit too hard
+      await sleep(1000); 
     }
 
     const table = standings?.standings?.[0]?.table || [];
-    
-    // 2. Find teams in table
     const homeEntry = table.find((t: any) => t.team.id === match.homeTeam.id);
     const awayEntry = table.find((t: any) => t.team.id === match.awayTeam.id);
 
-    // 3. Map standings to TeamStats
     const hydrateTeam = (team: any, entry: any): TeamStats => {
       if (!entry) return team;
       return {
         ...team,
-        position: entry.position,
-        played: entry.playedGames,
-        won: entry.won,
-        draw: entry.draw,
-        lost: entry.lost,
-        points: entry.points,
-        goalsFor: entry.goalsFor,
-        goalsAgainst: entry.goalsAgainst,
-        goalDifference: entry.goalDifference,
+        position: entry.position, played: entry.playedGames,
+        won: entry.won, draw: entry.draw, lost: entry.lost,
+        points: entry.points, goalsFor: entry.goalsFor,
+        goalsAgainst: entry.goalsAgainst, goalDifference: entry.goalDifference,
         form: entry.form || ""
       };
     };

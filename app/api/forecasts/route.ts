@@ -52,9 +52,15 @@ export async function GET(request: Request) {
         matchId: match.id, competition: match.competition, competitionCode: match.competitionCode,
         utcDate: match.utcDate, homeTeam: match.homeTeam, awayTeam: match.awayTeam,
         forecast: forecast || {
-          matchWinner: "DRAW", doubleChance: "1X", overUnder25: "UNDER", btts: "NO",
-          homeCleanSheet: "NO", awayCleanSheet: "NO", confidence: "LOW",
-          reasoning: "El análisis de IA se está procesando.", scoreSuggestion: "0-0",
+          matchWinner: "DRAW" as "DRAW" | "HOME" | "AWAY",
+          doubleChance: "1X" as "1X" | "X2" | "12",
+          overUnder25: "UNDER" as "OVER" | "UNDER",
+          btts: "NO" as "YES" | "NO",
+          homeCleanSheet: "NO" as "YES" | "NO",
+          awayCleanSheet: "NO" as "YES" | "NO",
+          confidence: "LOW" as "HIGH" | "MEDIUM" | "LOW",
+          reasoning: "El análisis de IA se está procesando.",
+          scoreSuggestion: "0-0",
           keyFactor: "AI Temporalmente no disponible"
         },
         generatedAt: new Date().toISOString()

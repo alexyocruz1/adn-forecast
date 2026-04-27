@@ -38,7 +38,7 @@ export async function getCachedForecasts(date: string): Promise<ForecastResult[]
       const f = await getMatchForecast(id);
       if (f) forecasts.push(f);
     }
-    
+
     return forecasts.length > 0 ? forecasts : null;
   } catch (error) {
     console.error("[cache] Error getting daily forecasts:", error);
@@ -52,14 +52,14 @@ export async function getCachedForecasts(date: string): Promise<ForecastResult[]
 export async function setCachedForecasts(date: string, forecasts: ForecastResult[]): Promise<void> {
   try {
     const ids = forecasts.map(f => f.matchId);
-    
+
     // 1. Save individual matches
     for (const f of forecasts) {
       // Don't save placeholders permanently if we have a choice, 
       // but save them to prevent infinite loops during a single session
       await setMatchForecast(f.matchId, f);
     }
-    
+
     // 2. Save the index for this day
     await kv.set(`forecasts:ids:${date}`, ids, { ex: 48 * 3600 });
   } catch (error) {
