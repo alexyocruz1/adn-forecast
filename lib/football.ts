@@ -3,7 +3,6 @@ import { TeamStats, Match } from "./types";
 const BASE_URL = "https://api.football-data.org/v4";
 
 // Target leagues (football-data.org codes)
-// PL: Premier League, PD: La Liga, SA: Serie A, BL1: Bundesliga, FL1: Ligue 1, DED: Eredivisie, PPL: Primeira Liga, ELC: Championship, BSA: Serie A Brazil
 const TARGET_LEAGUES = ["PL", "PD", "SA", "BL1", "FL1", "DED", "PPL", "ELC", "BSA"];
 
 /**
@@ -27,7 +26,7 @@ async function fetchWithRetry(endpoint: string, retries = 3): Promise<any> {
 
       if (response.status === 429) {
         console.warn(`[football] Rate limit hit (football-data), sleeping...`);
-        await sleep(60000); // Wait 1 minute for football-data reset
+        await sleep(60000); 
         continue;
       }
 
@@ -42,41 +41,54 @@ async function fetchWithRetry(endpoint: string, retries = 3): Promise<any> {
 }
 
 /**
- * Fetches today's matches from football-data.org
+ * Fetches today's matches for all tracked leagues by querying each league individually.
+ * This bypasses the restrictions on the global /matches endpoint.
  */
 export async function getTodaysMatches(): Promise<Match[]> {
   const today = new Date().toISOString().split('T')[0];
-  const data = await fetchWithRetry(`/matches?dateFrom=${today}&dateTo=${today}`);
-  
-  if (!data || !data.matches) return [];
+  const allMatches: Match[] = [];
 
-  const filtered = data.matches.filter((m: any) => {
-    return TARGET_LEAGUES.includes(m.competition.code);
-  });
+  console.log(`[football] Fetching matches for ${TARGET_LEAGUES.length} leagues...`);
 
-  return filtered.map((m: any) => ({
-    id: m.id,
-    competition: m.competition.name,
-    competitionCode: m.competition.code,
-    utcDate: m.utcDate,
-    season: m.season.startYear,
-    homeTeam: {
-      id: m.homeTeam.id,
-      name: m.homeTeam.name,
-      crest: m.homeTeam.crest,
-      position: 0, points: 0, played: 0, won: 0, draw: 0, lost: 0,
-      goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "",
-      cleanSheets: 0, failedToScore: 0, yellowCards: 0, redCards: 0
-    },
-    awayTeam: {
-      id: m.awayTeam.id,
-      name: m.awayTeam.name,
-      crest: m.awayTeam.crest,
-      position: 0, points: 0, played: 0, won: 0, draw: 0, lost: 0,
-      goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "",
-      cleanSheets: 0, failedToScore: 0, yellowCards: 0, redCards: 0
+  for (const leagueCode of TARGET_LEAGUES) {
+    try {
+      const data = await fetchWithRetry(`/competitions/${leagueCode}/matches?dateFrom=${today}&dateTo=${today}`);
+      
+      if (data && data.matches) {
+        const mapped = data.matches.map((m: any) => ({
+          id: m.id,
+          competition: m.competition.name,
+          competitionCode: m.competition.code,
+          utcDate: m.utcDate,
+          season: m.season.startYear,
+          homeTeam: {
+            id: m.homeTeam.id,
+            name: m.homeTeam.name,
+            crest: m.homeTeam.crest,
+            position: 0, points: 0, played: 0, won: 0, draw: 0, lost: 0,
+            goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "",
+            cleanSheets: 0, failedToScore: 0, yellowCards: 0, redCards: 0
+          },
+          awayTeam: {
+            id: m.awayTeam.id,
+            name: m.awayTeam.name,
+            crest: m.awayTeam.crest,
+            position: 0, points: 0, played: 0, won: 0, draw: 0, lost: 0,
+            goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "",
+            cleanSheets: 0, failedToScore: 0, yellowCards: 0, redCards: 0
+          }
+        }));
+        allMatches.push(...mapped);
+      }
+      
+      // Respect the 10 req/min limit (6 seconds between requests)
+      await sleep(6500); 
+    } catch (error) {
+      console.error(`[football] Error fetching matches for ${leagueCode}:`, error);
     }
-  }));
+  }
+
+  return allMatches;
 }
 
 /**
@@ -104,7 +116,7 @@ export async function getEnrichedMatches(): Promise<Match[]> {
     if (!standings) {
       standings = await getLeagueStandings(match.competitionCode);
       standingsCache.set(match.competitionCode, standings);
-      await sleep(6000); // Football-data free tier limit: 10 req/min
+      await sleep(6500); 
     }
 
     const table = standings?.standings?.[0]?.table || [];
