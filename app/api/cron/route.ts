@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnrichedMatches } from "@/lib/football";
 import { generateBatchForecasts } from "@/lib/gemini";
-import { setCachedForecasts } from "@/lib/cache";
+import { setCachedForecasts, getMatchForecast } from "@/lib/cache";
 import { ForecastResult } from "@/lib/types";
 import { kv } from "@vercel/kv";
 
@@ -76,38 +76,55 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, matchCount: 0, date: targetDate, league, generatedAt: new Date().toISOString() });
     }
 
-    // 4. Generate AI forecasts via Gemini
-    console.log(`[cron] Sending ${matches.length} matches to Gemini for ${league} on ${targetDate}...`);
-    const batchResults = await generateBatchForecasts(matches);
-
-    const forecasts: ForecastResult[] = [];
+    // 4. Generate AI forecasts via Gemini (only for missing matches)
+    const existingForecasts: ForecastResult[] = [];
+    const missingMatches = [];
     for (const match of matches) {
-      const forecast = batchResults.get(match.id);
-      if (forecast) {
-        forecasts.push({
-          matchId: match.id,
-          competition: match.competition,
-          competitionCode: match.competitionCode,
-          utcDate: match.utcDate,
-          homeTeam: match.homeTeam,
-          awayTeam: match.awayTeam,
-          forecast,
-          generatedAt: new Date().toISOString(),
-        });
+      const cached = await getMatchForecast(match.id);
+      if (cached) {
+        existingForecasts.push(cached);
+      } else {
+        missingMatches.push(match);
       }
     }
 
+    let newlyGeneratedForecasts: ForecastResult[] = [];
+    if (missingMatches.length > 0) {
+      console.log(`[cron] Sending ${missingMatches.length} missing matches to Gemini for ${league} on ${targetDate}...`);
+      const batchResults = await generateBatchForecasts(missingMatches);
+
+      for (const match of missingMatches) {
+        const forecast = batchResults.get(match.id);
+        if (forecast) {
+          newlyGeneratedForecasts.push({
+            matchId: match.id,
+            competition: match.competition,
+            competitionCode: match.competitionCode,
+            utcDate: match.utcDate,
+            homeTeam: match.homeTeam,
+            awayTeam: match.awayTeam,
+            forecast,
+            generatedAt: new Date().toISOString(),
+          });
+        }
+      }
+    } else {
+      console.log(`[cron] All ${matches.length} matches already have forecasts. Skipping Gemini.`);
+    }
+
+    const allForecasts = [...existingForecasts, ...newlyGeneratedForecasts];
+
     // 5. Store forecasts, appending to the day's index, and update freshness timestamp
-    await setCachedForecasts(targetDate, forecasts, true);
+    await setCachedForecasts(targetDate, allForecasts, true);
     await kv.set(`forecasts:generated_at:${targetDate}:${league}`, new Date().toISOString(), { ex: 48 * 3600 });
 
-    console.log(`[cron] ✅ ${forecasts.length} forecasts stored for ${league} on ${targetDate}.`);
+    console.log(`[cron] ✅ ${allForecasts.length} forecasts stored for ${league} on ${targetDate}.`);
 
     return NextResponse.json({
       success: true,
       date: targetDate,
       league,
-      matchCount: forecasts.length,
+      matchCount: allForecasts.length,
       generatedAt: new Date().toISOString(),
     });
   } catch (error) {
