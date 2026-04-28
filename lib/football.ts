@@ -88,12 +88,15 @@ async function getLeagueMatches(leagueCode: string, date: string): Promise<Match
 }
 
 /**
- * Fetches all matches for a given date across all target leagues.
- * Sequential with 6.5s sleep between requests to respect the 10 req/min free tier limit.
+ * Fetches all matches for a given date across target leagues, or just one league if specified.
  */
-export async function getMatchesForDate(date: string): Promise<Match[]> {
-  console.log(`[football] Scanning ${TARGET_LEAGUES.length} leagues for ${date} (sequential)...`);
+export async function getMatchesForDate(date: string, league?: string): Promise<Match[]> {
+  if (league) {
+    console.log(`[football] Fetching matches for ${league} on ${date}...`);
+    return await getLeagueMatches(league, date);
+  }
 
+  console.log(`[football] Scanning ${TARGET_LEAGUES.length} leagues for ${date} (sequential)...`);
   const allMatches: Match[] = [];
   for (const code of TARGET_LEAGUES) {
     const matches = await getLeagueMatches(code, date);
@@ -109,9 +112,10 @@ export async function getMatchesForDate(date: string): Promise<Match[]> {
  * Hydrates a list of matches with standings data.
  * Only fetches standings for leagues that actually have matches (efficient).
  */
-export async function getEnrichedMatches(date: string): Promise<Match[]> {
-  const matches = await getMatchesForDate(date);
+export async function getEnrichedMatches(date: string, league?: string): Promise<Match[]> {
+  const matches = await getMatchesForDate(date, league);
   if (matches.length === 0) return [];
+
 
   const enriched: Match[] = [];
   const standingsCache = new Map<string, any>();

@@ -12,11 +12,12 @@ export const maxDuration = 60;
 const REFRESH_THRESHOLD_HOURS = 4;
 
 /**
- * Runs the full forecast pipeline for a single date.
- * Called by the GitHub Actions workflow twice per run: once for today, once for tomorrow.
+ * Runs the full forecast pipeline for a single date and league.
+ * Called by the GitHub Actions workflow for each league separately.
  *
  * Query params:
  *   ?date=YYYY-MM-DD   Target date. Defaults to today UTC.
+ *   ?league=PL         Target league code.
  *   ?force=1           Bypass the freshness check and force a full refresh.
  */
 export async function GET(request: NextRequest) {
@@ -29,48 +30,54 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const forceRefresh = searchParams.get("force") === "1";
+  const league = searchParams.get("league");
+
+  if (!league) {
+    return NextResponse.json({ error: "Missing 'league' parameter" }, { status: 400 });
+  }
 
   // Default to today UTC; allow override via ?date=
   const todayUtc = new Date().toISOString().split("T")[0];
   const targetDate = searchParams.get("date") || todayUtc;
 
-  console.log(`[cron] Target date: ${targetDate}${forceRefresh ? " (forced)" : ""}`);
+  console.log(`[cron] Target date: ${targetDate}, League: ${league}${forceRefresh ? " (forced)" : ""}`);
 
   try {
-    // 2. Smart Freshness Check — skip if data was recently generated for this date
+    // 2. Smart Freshness Check — per league
     if (!forceRefresh) {
-      const lastGeneratedAt = await kv.get<string>(`forecasts:generated_at:${targetDate}`);
+      const lastGeneratedAt = await kv.get<string>(`forecasts:generated_at:${targetDate}:${league}`);
       if (lastGeneratedAt) {
         const ageHours = (Date.now() - new Date(lastGeneratedAt).getTime()) / (1000 * 60 * 60);
         if (ageHours < REFRESH_THRESHOLD_HOURS) {
-          console.log(`[cron] ${targetDate} data is fresh (${ageHours.toFixed(1)}h old). Skipping.`);
+          console.log(`[cron] ${targetDate} data for ${league} is fresh (${ageHours.toFixed(1)}h old). Skipping.`);
           return NextResponse.json({
             success: true,
             skipped: true,
             date: targetDate,
+            league,
             reason: `Data is ${ageHours.toFixed(1)}h old, threshold is ${REFRESH_THRESHOLD_HOURS}h`,
             lastGeneratedAt,
           });
         }
-        console.log(`[cron] ${targetDate} data is ${ageHours.toFixed(1)}h old — refreshing.`);
+        console.log(`[cron] ${targetDate} data for ${league} is ${ageHours.toFixed(1)}h old — refreshing.`);
       } else {
-        console.log(`[cron] No data found for ${targetDate} — running fresh pipeline.`);
+        console.log(`[cron] No data found for ${targetDate} ${league} — running fresh pipeline.`);
       }
     }
 
-    // 3. Fetch + hydrate matches for the target date
-    console.log(`[cron] Fetching enriched matches for ${targetDate}...`);
-    const matches = await getEnrichedMatches(targetDate);
+    // 3. Fetch + hydrate matches for the target date and league
+    console.log(`[cron] Fetching enriched matches for ${league} on ${targetDate}...`);
+    const matches = await getEnrichedMatches(targetDate, league);
 
     if (matches.length === 0) {
-      console.log(`[cron] No matches found for ${targetDate}.`);
-      // Still stamp the timestamp so we don't re-scan for the next 4h
-      await kv.set(`forecasts:generated_at:${targetDate}`, new Date().toISOString(), { ex: 48 * 3600 });
-      return NextResponse.json({ success: true, matchCount: 0, date: targetDate, generatedAt: new Date().toISOString() });
+      console.log(`[cron] No matches found for ${league} on ${targetDate}.`);
+      // Stamp the timestamp so we don't re-scan for the next 4h
+      await kv.set(`forecasts:generated_at:${targetDate}:${league}`, new Date().toISOString(), { ex: 48 * 3600 });
+      return NextResponse.json({ success: true, matchCount: 0, date: targetDate, league, generatedAt: new Date().toISOString() });
     }
 
     // 4. Generate AI forecasts via Gemini
-    console.log(`[cron] Sending ${matches.length} matches to Gemini for ${targetDate}...`);
+    console.log(`[cron] Sending ${matches.length} matches to Gemini for ${league} on ${targetDate}...`);
     const batchResults = await generateBatchForecasts(matches);
 
     const forecasts: ForecastResult[] = [];
@@ -90,22 +97,23 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 5. Store forecasts and update freshness timestamp
-    await setCachedForecasts(targetDate, forecasts);
-    await kv.set(`forecasts:generated_at:${targetDate}`, new Date().toISOString(), { ex: 48 * 3600 });
+    // 5. Store forecasts, appending to the day's index, and update freshness timestamp
+    await setCachedForecasts(targetDate, forecasts, true);
+    await kv.set(`forecasts:generated_at:${targetDate}:${league}`, new Date().toISOString(), { ex: 48 * 3600 });
 
-    console.log(`[cron] ✅ ${forecasts.length} forecasts stored for ${targetDate}.`);
+    console.log(`[cron] ✅ ${forecasts.length} forecasts stored for ${league} on ${targetDate}.`);
 
     return NextResponse.json({
       success: true,
       date: targetDate,
+      league,
       matchCount: forecasts.length,
       generatedAt: new Date().toISOString(),
     });
   } catch (error) {
-    console.error(`[cron] Error for ${targetDate}:`, error);
+    console.error(`[cron] Error for ${league} on ${targetDate}:`, error);
     return NextResponse.json(
-      { error: "Cron job failed", date: targetDate, details: String(error) },
+      { error: "Cron job failed", date: targetDate, league, details: String(error) },
       { status: 500 }
     );
   }

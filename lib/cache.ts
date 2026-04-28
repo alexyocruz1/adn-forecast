@@ -47,22 +47,27 @@ export async function getCachedForecasts(date: string): Promise<ForecastResult[]
 }
 
 /**
- * Legacy: Sets daily forecasts (updated to use the new match-level logic)
+ * Sets daily forecasts (supports appending for per-league processing)
  */
-export async function setCachedForecasts(date: string, forecasts: ForecastResult[]): Promise<void> {
+export async function setCachedForecasts(date: string, forecasts: ForecastResult[], append = false): Promise<void> {
   try {
-    const ids = forecasts.map(f => f.matchId);
+    const newIds = forecasts.map(f => f.matchId);
 
     // 1. Save individual matches
     for (const f of forecasts) {
-      // Don't save placeholders permanently if we have a choice, 
-      // but save them to prevent infinite loops during a single session
       await setMatchForecast(f.matchId, f);
     }
 
-    // 2. Save the index for this day
-    await kv.set(`forecasts:ids:${date}`, ids, { ex: 48 * 3600 });
+    // 2. Update the index for this day
+    if (append) {
+      const existingIds = await kv.get<number[]>(`forecasts:ids:${date}`) || [];
+      const mergedIds = Array.from(new Set([...existingIds, ...newIds]));
+      await kv.set(`forecasts:ids:${date}`, mergedIds, { ex: 48 * 3600 });
+    } else {
+      await kv.set(`forecasts:ids:${date}`, newIds, { ex: 48 * 3600 });
+    }
   } catch (error) {
     console.error("[cache] Error setting daily forecasts:", error);
   }
 }
+
