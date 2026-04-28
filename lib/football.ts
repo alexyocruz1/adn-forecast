@@ -1,7 +1,23 @@
 import { TeamStats, Match } from "./types";
 
 const BASE_URL = "https://api.football-data.org/v4";
-const TARGET_LEAGUES = ["PL", "PD", "SA", "BL1", "FL1", "DED", "PPL", "ELC", "BSA"];
+
+// All 11 competitions available on the football-data.org free tier.
+// EC (European Championship) omitted — not active until 2028.
+const TARGET_LEAGUES = [
+  "PL",  // Premier League
+  "PD",  // La Liga
+  "SA",  // Serie A
+  "BL1", // Bundesliga
+  "FL1", // Ligue 1
+  "DED", // Eredivisie
+  "PPL", // Primeira Liga
+  "ELC", // Championship
+  "BSA", // Campeonato Brasileiro Série A
+  "CL",  // UEFA Champions League
+  "WC",  // FIFA World Cup 2026
+  "EC",  // European Championship
+];
 
 /**
  * Utility to sleep for rate limiting
@@ -14,7 +30,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 async function fetchWithRetry(endpoint: string, retries = 3): Promise<any> {
   const apiKey = process.env.FOOTBALL_DATA_API_KEY;
   const url = `${BASE_URL}${endpoint}`;
-  
+
   for (let i = 0; i < retries; i++) {
     try {
       const response = await fetch(url, {
@@ -77,15 +93,18 @@ async function getLeagueMatches(leagueCode: string, date: string): Promise<Match
  */
 export async function getTodaysMatches(): Promise<Match[]> {
   const today = new Date().toISOString().split('T')[0];
-  console.log(`[football] Searching for matches on ${today} in parallel...`);
+  console.log(`[football] Searching for matches on ${today} (sequential, rate-limited)...`);
 
-  // Run all league queries simultaneously
-  const results = await Promise.all(
-    TARGET_LEAGUES.map(code => getLeagueMatches(code, today))
-  );
+  // Sequential fetching with a sleep between requests.
+  // The free tier allows 10 req/min — 6.5s gap keeps us safely under that.
+  const allMatches: Match[] = [];
+  for (const code of TARGET_LEAGUES) {
+    const matches = await getLeagueMatches(code, today);
+    allMatches.push(...matches);
+    await sleep(6500);
+  }
 
-  const allMatches = results.flat();
-  console.log(`[football] Found ${allMatches.length} total matches.`);
+  console.log(`[football] Found ${allMatches.length} total matches across ${TARGET_LEAGUES.length} leagues.`);
   return allMatches;
 }
 
@@ -101,7 +120,7 @@ export async function getEnrichedMatches(): Promise<Match[]> {
 
   // Only hydrate leagues that actually have matches today
   const activeLeagues = Array.from(new Set(matches.map(m => m.competitionCode)));
-  
+
   console.log(`[football] Hydrating matches for ${activeLeagues.length} active leagues...`);
 
   for (const match of matches) {
@@ -110,7 +129,7 @@ export async function getEnrichedMatches(): Promise<Match[]> {
       standings = await fetchWithRetry(`/competitions/${match.competitionCode}/standings`);
       standingsCache.set(match.competitionCode, standings);
       // Small sleep between standings to avoid hitting the 10/min burst limit too hard
-      await sleep(1000); 
+      await sleep(1000);
     }
 
     const table = standings?.standings?.[0]?.table || [];
