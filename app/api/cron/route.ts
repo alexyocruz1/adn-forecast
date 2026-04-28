@@ -124,7 +124,9 @@ export async function GET(request: NextRequest) {
       success: true,
       date: targetDate,
       league,
-      matchCount: allForecasts.length,
+      totalMatches: matches.length,
+      newForecasts: newlyGeneratedForecasts.length,
+      existingForecasts: existingForecasts.length,
       generatedAt: new Date().toISOString(),
     });
   } catch (error) {
