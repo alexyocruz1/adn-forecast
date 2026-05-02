@@ -143,10 +143,13 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
               await sleep(15000); // Wait a full 15 seconds to let the minute-based rate limit reset
               continue;
             }
+            // If we exhausted all 429 retries, the API key is hard-locked. 
+            // DO NOT try other models because they share the same key and will also fail.
+            throw new Error(`[gemini] CRITICAL RATE LIMIT EXHAUSTED on ${modelName}. Aborting to save quota.`);
           }
 
           console.warn(`[gemini] ${modelName} attempt failed: ${message.substring(0, 100)}...`);
-          break; // If it failed for a reason other than 429 (or exhausted 429 retries), break and try the next model
+          break; // If it failed for a reason other than 429 (like invalid JSON output), break and try the next model
         }
       }
     } catch (modelError: any) {
