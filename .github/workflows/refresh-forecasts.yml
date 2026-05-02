@@ -31,7 +31,7 @@ jobs:
               "https://adn-forecast.vercel.app/api/cron?date=$TODAY&league=$LEAGUE")
             echo "Response for $LEAGUE: $RESPONSE"
             echo "$RESPONSE" | grep -q '"success":true' && echo "✅ $LEAGUE succeeded." || echo "❌ $LEAGUE failed or returned unexpected response."
-            sleep 7
+            sleep 10
           done
 
       - name: Wait between dates (rate limit buffer)
@@ -48,6 +48,6 @@ jobs:
               "https://adn-forecast.vercel.app/api/cron?date=$TOMORROW&league=$LEAGUE")
             echo "Response for $LEAGUE: $RESPONSE"
             echo "$RESPONSE" | grep -q '"success":true' && echo "✅ $LEAGUE succeeded." || echo "❌ $LEAGUE failed or returned unexpected response."
-            sleep 7
+            sleep 10
           done
 

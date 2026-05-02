@@ -37,6 +37,7 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
     - Si un equipo tiene 0 en scoreSuggestion, su rival cleanSheet DEBE ser "YES".
     - NO uses frases vacías como "será un partido reñido". Ve directo al grano táctico.
     - NO menciones que eres una IA o que te faltan datos.
+    - NO uses comillas dobles (") dentro de tus textos (usa comillas simples ' ' si es necesario) para evitar corromper el JSON.
 
     FORMATO DE RESPUESTA (ESTRICTO):
     Responde ÚNICAMENTE con un JSON donde las llaves sean los matchId y el valor sea un objeto con este esquema:
