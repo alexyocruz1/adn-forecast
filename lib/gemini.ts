@@ -1,7 +1,10 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Match, ForecastResult } from "./types";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const apiKeys = [
+  process.env.GEMINI_API_KEY,
+  process.env.GEMINI_FALLBACK_API_KEY
+].filter(Boolean) as string[];
 
 /**
  * Utility to sleep for rate limiting
@@ -83,10 +86,14 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
 
   const userPrompt = `Genera los pronósticos para estos partidos:\n${JSON.stringify(matchesData, null, 2)}`;
 
+  let currentKeyIndex = 0;
+
   for (const modelName of models) {
     try {
-      console.log(`[gemini] Attempting with model: ${modelName}`);
-      const model = genAI.getGenerativeModel({
+      console.log(`[gemini] Attempting with model: ${modelName} using key index ${currentKeyIndex}`);
+      
+      let genAI = new GoogleGenerativeAI(apiKeys[currentKeyIndex] || "");
+      let model = genAI.getGenerativeModel({
         model: modelName,
         generationConfig: {
           temperature: 0.4,
@@ -110,10 +117,10 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
 
           if (Array.isArray(parsed)) {
             // Handle array response
-            for (let i = 0; i < parsed.length; i++) {
-              const forecastObj = parsed[i];
+            for (let j = 0; j < parsed.length; j++) {
+              const forecastObj = parsed[j];
               // Try to find the match ID either in the object itself or by matching the array index
-              const matchId = forecastObj.matchId || (matchesData[i] ? matchesData[i].matchId : null);
+              const matchId = forecastObj.matchId || (matchesData[j] ? matchesData[j].matchId : null);
               if (matchId) {
                 resultMap.set(Number(matchId), forecastObj as ForecastResult["forecast"]);
               }
@@ -138,14 +145,35 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
           const message = error.message || "No error message";
 
           if (status === 429 || message.includes("429")) {
-            console.warn(`[gemini] ${modelName} rate limit hit, waiting 15s before retry ${i + 1}/${retries}...`);
+            console.warn(`[gemini] ${modelName} rate limit hit on key ${currentKeyIndex}, waiting 15s before retry ${i + 1}/${retries}...`);
             if (i < retries - 1) {
               await sleep(15000); // Wait a full 15 seconds to let the minute-based rate limit reset
               continue;
             }
-            // If we exhausted all 429 retries, the API key is hard-locked. 
-            // DO NOT try other models because they share the same key and will also fail.
-            throw new Error(`[gemini] CRITICAL RATE LIMIT EXHAUSTED on ${modelName}. Aborting to save quota.`);
+            
+            // If we exhausted 429 retries, try falling back to the next API key if available
+            if (currentKeyIndex < apiKeys.length - 1) {
+              console.warn(`[gemini] Primary API key rate limit exhausted. Switching to fallback API key...`);
+              currentKeyIndex++;
+              // Reinitialize the model with the new key
+              genAI = new GoogleGenerativeAI(apiKeys[currentKeyIndex]);
+              model = genAI.getGenerativeModel({
+                model: modelName,
+                generationConfig: {
+                  temperature: 0.4,
+                  topP: 0.95,
+                  topK: 40,
+                  maxOutputTokens: 2048,
+                  responseMimeType: "application/json",
+                }
+              });
+              // Reset the retry counter to try again with the new key
+              i = -1; 
+              continue;
+            }
+
+            // If we exhausted all 429 retries and have no more fallback keys, abort
+            throw new Error(`[gemini] CRITICAL RATE LIMIT EXHAUSTED on ${modelName} across all API keys. Aborting to save quota.`);
           }
 
           console.warn(`[gemini] ${modelName} attempt failed: ${message.substring(0, 100)}...`);
