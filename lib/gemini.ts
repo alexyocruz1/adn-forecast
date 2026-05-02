@@ -28,8 +28,8 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
     1. Evalúa la 'forma' (WWDLW) y la posición en la tabla.
     2. FACTOR DE SUPERVIVENCIA: Si se han jugado > 65% de los partidos de la temporada y un equipo está en las últimas 5 posiciones, considera su "urgencia por no descender". Estos equipos suelen rendir por encima de su nivel estadístico por pura motivación.
     3. Usa el promedio de goles anotados (goalsFor) y recibidos (goalsAgainst) para determinar el Over/Under, btts, y Clean Sheets.
-    4. ESTILO DE REDACCIÓN: Profesional, analítico y elegante (ej: jerarquía, solvencia, asedio, vulnerabilidad).
-    5. ESTRUCTURA DEL RAZONAMIENTO: [Momento actual de los equipos] + [Dato estadístico clave] + [Por qué ocurrirá el resultado sugerido].
+    4. ESTILO DE REDACCIÓN: Dinámico, profesional y variado. Adapta el tono al contexto (ej: tenso para un derbi, clínico para un favorito claro, épico para una sorpresa). EVITA repetir siempre las mismas palabras (varía entre términos como jerarquía, solvencia, asedio, vulnerabilidad, contundencia, pragmatismo, etc.).
+    5. ESTRUCTURA DEL RAZONAMIENTO: Varía la forma en que presentas la información, pero asegúrate de incluir: [Momento actual de los equipos] + [Dato estadístico clave] + [Por qué ocurrirá el resultado]. No uses siempre la misma fórmula introductoria.
 
     REGLAS DE CONSISTENCIA (OBLIGATORIAS):
     - Si scoreSuggestion suma > 2.5 goles, overUnder25 DEBE ser "OVER".
@@ -48,7 +48,7 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
       "homeCleanSheet": "YES" | "NO",
       "awayCleanSheet": "YES" | "NO",
       "confidence": "HIGH" | "MEDIUM" | "LOW",
-      "reasoning": "Análisis profundo y profesional (Máx 400 caracteres)",
+      "reasoning": "Análisis profundo, variado y profesional (Máx 400 caracteres)",
       "scoreSuggestion": "Ej: 2-1",
       "keyFactor": "El factor táctico determinante (Máx 60 caracteres)"
     }
@@ -88,7 +88,7 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
       const model = genAI.getGenerativeModel({
         model: modelName,
         generationConfig: {
-          temperature: 0.1,
+          temperature: 0.4,
           topP: 0.95,
           topK: 40,
           maxOutputTokens: 2048,
@@ -106,8 +106,28 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
           const parsed = JSON.parse(cleanJson);
 
           const resultMap = new Map<number, ForecastResult["forecast"]>();
-          for (const [id, forecast] of Object.entries(parsed)) {
-            resultMap.set(Number(id), forecast as ForecastResult["forecast"]);
+
+          if (Array.isArray(parsed)) {
+            // Handle array response
+            for (let i = 0; i < parsed.length; i++) {
+              const forecastObj = parsed[i];
+              // Try to find the match ID either in the object itself or by matching the array index
+              const matchId = forecastObj.matchId || (matchesData[i] ? matchesData[i].matchId : null);
+              if (matchId) {
+                resultMap.set(Number(matchId), forecastObj as ForecastResult["forecast"]);
+              }
+            }
+          } else {
+            // Handle object response (dictionary)
+            for (const [id, forecastObj] of Object.entries(parsed)) {
+              const numId = Number(id);
+              // Sometimes Gemini uses 0, 1, 2 as keys instead of matchIds
+              if (numId < matchesData.length && String(matchesData[numId].matchId) !== String(id)) {
+                resultMap.set(matchesData[numId].matchId, forecastObj as ForecastResult["forecast"]);
+              } else {
+                resultMap.set(numId, forecastObj as ForecastResult["forecast"]);
+              }
+            }
           }
 
           console.log(`[gemini] Success with ${modelName}`);

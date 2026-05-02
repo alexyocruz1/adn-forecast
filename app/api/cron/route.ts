@@ -114,9 +114,15 @@ export async function GET(request: NextRequest) {
 
     const allForecasts = [...existingForecasts, ...newlyGeneratedForecasts];
 
-    // 5. Store forecasts, appending to the day's index, and update freshness timestamp
+    // 5. Store forecasts, appending to the day's index
     await setCachedForecasts(targetDate, allForecasts, true);
-    await kv.set(`forecasts:generated_at:${targetDate}:${league}`, new Date().toISOString(), { ex: 48 * 3600 });
+
+    // Only update the freshness timestamp if we actually successfully generated the missing matches
+    if (missingMatches.length > 0 && newlyGeneratedForecasts.length === 0) {
+      console.warn(`[cron] Gemini failed to generate valid JSON for ${league}. Not stamping generatedAt so it can retry.`);
+    } else {
+      await kv.set(`forecasts:generated_at:${targetDate}:${league}`, new Date().toISOString(), { ex: 48 * 3600 });
+    }
 
     console.log(`[cron] ✅ ${allForecasts.length} forecasts stored for ${league} on ${targetDate}.`);
 
