@@ -16,11 +16,10 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
  */
 export async function generateBatchForecasts(matches: Match[], retries = 3): Promise<Map<number, ForecastResult["forecast"]>> {
   const models = [
-    "gemini-2.0-flash",
-    "gemini-2.5-flash",
-    "gemini-flash-latest",
-    "gemini-2.0-flash-lite",
-    "gemini-pro-latest"
+    "gemini-3.1-flash-lite-preview", // 500 RPD limit
+    "gemini-2.5-flash",              // 20 RPD limit
+    "gemini-flash-latest",           // Maps to Gemini 3 Flash (20 RPD)
+    "gemini-2.0-flash"               // 0 RPD limit for this project
   ];
 
   const systemPrompt = `
