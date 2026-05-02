@@ -90,22 +90,33 @@ export async function GET(request: NextRequest) {
 
     let newlyGeneratedForecasts: ForecastResult[] = [];
     if (missingMatches.length > 0) {
-      console.log(`[cron] Sending ${missingMatches.length} missing matches to Gemini for ${league} on ${targetDate}...`);
-      const batchResults = await generateBatchForecasts(missingMatches);
-
-      for (const match of missingMatches) {
-        const forecast = batchResults.get(match.id);
-        if (forecast) {
-          newlyGeneratedForecasts.push({
-            matchId: match.id,
-            competition: match.competition,
-            competitionCode: match.competitionCode,
-            utcDate: match.utcDate,
-            homeTeam: match.homeTeam,
-            awayTeam: match.awayTeam,
-            forecast,
-            generatedAt: new Date().toISOString(),
-          });
+      console.log(`[cron] Sending ${missingMatches.length} missing matches to Gemini for ${league} in chunks...`);
+      
+      const chunkSize = 5;
+      for (let i = 0; i < missingMatches.length; i += chunkSize) {
+        const chunk = missingMatches.slice(i, i + chunkSize);
+        const batchResults = await generateBatchForecasts(chunk);
+        
+        const chunkForecasts: ForecastResult[] = [];
+        for (const match of chunk) {
+          const forecast = batchResults.get(match.id);
+          if (forecast) {
+            chunkForecasts.push({
+              matchId: match.id,
+              competition: match.competition,
+              competitionCode: match.competitionCode,
+              utcDate: match.utcDate,
+              homeTeam: match.homeTeam,
+              awayTeam: match.awayTeam,
+              forecast,
+              generatedAt: new Date().toISOString(),
+            });
+          }
+        }
+        
+        if (chunkForecasts.length > 0) {
+          newlyGeneratedForecasts = [...newlyGeneratedForecasts, ...chunkForecasts];
+          await setCachedForecasts(targetDate, chunkForecasts, true);
         }
       }
     } else {
@@ -113,8 +124,6 @@ export async function GET(request: NextRequest) {
     }
 
     const allForecasts = [...existingForecasts, ...newlyGeneratedForecasts];
-
-    // 5. Store forecasts, appending to the day's index
     await setCachedForecasts(targetDate, allForecasts, true);
 
     // Only update the freshness timestamp if we actually successfully generated the missing matches
