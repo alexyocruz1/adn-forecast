@@ -138,15 +138,15 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
           const message = error.message || "No error message";
 
           if (status === 429 || message.includes("429")) {
-            console.warn(`[gemini] ${modelName} rate limit hit, retry ${i + 1}/${retries}...`);
+            console.warn(`[gemini] ${modelName} rate limit hit, waiting 15s before retry ${i + 1}/${retries}...`);
             if (i < retries - 1) {
-              await sleep(1000 * (i + 1));
+              await sleep(15000); // Wait a full 15 seconds to let the minute-based rate limit reset
               continue;
             }
           }
 
           console.warn(`[gemini] ${modelName} attempt failed: ${message.substring(0, 100)}...`);
-          break;
+          break; // If it failed for a reason other than 429 (or exhausted 429 retries), break and try the next model
         }
       }
     } catch (modelError: any) {
