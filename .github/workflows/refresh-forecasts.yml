@@ -10,6 +10,9 @@ jobs:
   refresh:
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
       - name: Wake up Vercel deployment
         run: |
           echo "Pinging /api/health to warm up the serverless function..."
