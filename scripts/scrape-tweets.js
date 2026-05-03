@@ -1,19 +1,35 @@
 const { chromium } = require("playwright");
+const fs = require("fs");
+const path = require("path");
 
 async function scrapeTweets() {
-  console.log("🚀 Starting scraper...");
+  console.log("🚀 Starting Ninja Scraper...");
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    viewport: { width: 1280, height: 1000 }
   });
   const page = await context.newPage();
 
   try {
     console.log("📅 Navigating to X.com/adn_futbolero_...");
-    await page.goto("https://x.com/adn_futbolero_", { waitUntil: "networkidle" });
     
-    // Wait for tweets to load
-    await page.waitForSelector('article[data-testid="tweet"]', { timeout: 15000 });
+    // Use a slightly different URL that sometimes bypasses simple blocks
+    await page.goto("https://x.com/adn_futbolero_", { 
+      waitUntil: "domcontentloaded",
+      timeout: 60000 
+    });
+    
+    console.log("⏳ Waiting for content to appear...");
+    
+    // Wait for either tweets OR a login wall
+    try {
+      await page.waitForSelector('article[data-testid="tweet"]', { timeout: 30000 });
+    } catch (e) {
+      console.log("⚠️ Tweets not found immediately. Checking for blocks or login walls...");
+      await page.screenshot({ path: "scraper-error.png", fullPage: true });
+      throw new Error("Could not find tweets. See scraper-error.png for what X is showing.");
+    }
 
     console.log("🔍 Extracting tweets...");
     const tweets = await page.evaluate(() => {
@@ -38,6 +54,11 @@ async function scrapeTweets() {
       });
     });
 
+    if (tweets.length === 0) {
+      await page.screenshot({ path: "scraper-empty.png", fullPage: true });
+      throw new Error("Found 0 tweets. Check scraper-empty.png");
+    }
+
     console.log(`✅ Successfully scraped ${tweets.length} tweets.`);
     
     // Sync with our API
@@ -54,7 +75,12 @@ async function scrapeTweets() {
     console.log("📤 Sync Result:", result);
 
   } catch (error) {
-    console.error("❌ Scraper failed:", error);
+    console.error("❌ Scraper failed:", error.message);
+    // Ensure we have a screenshot of the failure
+    try {
+        await page.screenshot({ path: "scraper-failure.png", fullPage: true });
+        console.log("📸 Screenshot saved to scraper-failure.png");
+    } catch (sErr) {}
     process.exit(1);
   } finally {
     await browser.close();
