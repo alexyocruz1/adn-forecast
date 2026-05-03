@@ -88,12 +88,12 @@ export default function TwitterFeed() {
             className="group block bg-bg-card/40 backdrop-blur-md border border-border/40 rounded-3xl overflow-hidden hover:border-green-glow/50 transition-all duration-500 shadow-xl hover:shadow-green-glow/5"
           >
             {tweet.images && tweet.images.length > 0 && (
-              <div className="relative h-48 w-full overflow-hidden border-b border-border/20">
+              <div className="relative h-64 w-full overflow-hidden border-b border-border/20 bg-black/20">
                 <Image 
                   src={tweet.images[0]} 
                   alt="Tweet Media" 
                   fill 
-                  className="object-cover group-hover:scale-105 transition-transform duration-700"
+                  className="object-contain group-hover:scale-105 transition-transform duration-700"
                   unoptimized
                 />
               </div>
@@ -117,7 +117,7 @@ export default function TwitterFeed() {
                 </div>
               </div>
 
-              <p className="font-body text-text-soft text-sm line-clamp-4 flex-grow mb-4 leading-relaxed">
+              <p className="font-body text-text-soft text-sm flex-grow mb-4 leading-relaxed whitespace-pre-wrap">
                 {tweet.text}
               </p>
 

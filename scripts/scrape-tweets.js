@@ -51,6 +51,20 @@ async function scrapeTweets() {
           const tweetId = relativeLink.split("/").pop().split("#")[0];
           const xLink = `https://x.com/adn_futbolero_/status/${tweetId}`;
 
+          const rawDate = dateEl ? dateEl.getAttribute("title") : "";
+          let cleanDate = new Date().toISOString();
+          
+          if (rawDate) {
+            try {
+              // Nitter format: "May 3, 2026 · 6:48 AM UTC"
+              // Remove the middle dot and parse
+              const parseableDate = rawDate.replace("·", "").trim();
+              cleanDate = new Date(parseableDate).toISOString();
+            } catch (e) {
+              console.error("Date parsing error:", e);
+            }
+          }
+
           const images = imageEls.map(img => {
             let src = img.src;
             if (src.startsWith("/")) {
@@ -62,7 +76,7 @@ async function scrapeTweets() {
           return {
             id: tweetId || Math.random().toString(),
             text: contentEl ? contentEl.innerText.trim() : "",
-            timestamp: dateEl ? dateEl.getAttribute("title") : new Date().toISOString(),
+            timestamp: cleanDate,
             link: xLink,
             images: images
           };
