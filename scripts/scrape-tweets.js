@@ -75,7 +75,7 @@ async function scrapeTweets() {
 
           return {
             id: tweetId || Math.random().toString(),
-            text: contentEl ? contentEl.innerText.trim() : "",
+            text: contentEl ? contentEl.textContent.trim() : "",
             timestamp: cleanDate,
             link: xLink,
             images: images
