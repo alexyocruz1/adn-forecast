@@ -35,14 +35,14 @@ jobs:
           done
 
       - name: Sync Social Feed (Scraping)
-        run: |
-          echo "🔄 Starting social feed synchronization..."
-          # Install playwright dependencies
-          npm install playwright
-          npx playwright install chromium --with-deps
-          # Run the scraper
-          CRON_SECRET=${{ secrets.CRON_SECRET }} node scripts/scrape-tweets.js
-          echo "✅ Social feed sync complete."
+        uses: microsoft/playwright-github-action@v1
+        with:
+          run: |
+            echo "🔄 Starting social feed synchronization..."
+            npm install playwright
+            # Run the scraper
+            CRON_SECRET=${{ secrets.CRON_SECRET }} node scripts/scrape-tweets.js
+            echo "✅ Social feed sync complete."
 
       - name: Wait between dates (rate limit buffer)
         run: sleep 10
