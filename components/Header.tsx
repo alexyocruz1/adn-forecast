@@ -22,27 +22,40 @@ export default function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <div className="flex justify-between items-center">
           
-          <div className="flex items-center gap-3">
-            <div className="relative w-10 h-10 rounded-full overflow-hidden bg-bg-card border border-border">
-              <Image 
-                src="/images/adnlogo.png" 
-                alt="ADN Futbolero Logo" 
-                fill 
-                sizes="(max-width: 768px) 32px, 48px"
-                className="object-cover"
-                onError={(e) => {
-                  // Fallback if logo doesn't exist yet
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-            </div>
-            <div>
-              <h1 className="font-display text-2xl tracking-wide text-text-primary m-0 leading-none">
-                ADN FUTBOLERO
-              </h1>
-              <p className="font-body text-xs text-text-soft mt-1 hidden sm:block">
-                Pronósticos con inteligencia artificial
-              </p>
+          <div className="flex items-center gap-3 sm:gap-5">
+            {/* Menu Trigger (Hidden on Desktop XL as sidebar is persistent) */}
+            <button 
+              onClick={() => window.dispatchEvent(new CustomEvent('toggle-sidebar'))}
+              className="xl:hidden p-2 -ml-2 rounded-full hover:bg-bg-card-hover text-text-primary transition-all active:scale-90"
+              aria-label="Menu"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
+              </svg>
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="relative w-10 h-10 rounded-full overflow-hidden bg-bg-card border border-border">
+                <Image 
+                  src="/images/adnlogo.png" 
+                  alt="ADN Futbolero Logo" 
+                  fill 
+                  sizes="(max-width: 768px) 32px, 48px"
+                  className="object-cover"
+                  onError={(e) => {
+                    // Fallback if logo doesn't exist yet
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </div>
+              <div>
+                <h1 className="font-display text-2xl tracking-wide text-text-primary m-0 leading-none">
+                  ADN FUTBOLERO
+                </h1>
+                <p className="font-body text-xs text-text-soft mt-1 hidden sm:block">
+                  Pronósticos con inteligencia artificial
+                </p>
+              </div>
             </div>
           </div>
 

@@ -80,4 +80,12 @@ body {
   .glow-away:hover {
     box-shadow: 0 0 15px rgba(56, 189, 248, 0.2); /* --badge-away */
   }
+
+  @keyframes bounce-subtle {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+  .animate-bounce-subtle {
+    animation: bounce-subtle 3s ease-in-out infinite;
+  }
 }
