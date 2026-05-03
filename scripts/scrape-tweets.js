@@ -1,67 +1,93 @@
 const { chromium } = require("playwright");
-const fs = require("fs");
-const path = require("path");
 
 async function scrapeTweets() {
-  console.log("🚀 Starting Ninja Scraper...");
+  console.log("🚀 Starting Mirror Scraper (Nitter Mode)...");
+  
+  // List of Nitter instances to try if one is down
+  const instances = [
+    "https://nitter.tiekoetter.com",
+    "https://nitter.privacydev.net",
+    "https://nitter.net",
+    "https://nitter.poast.org"
+  ];
+
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    viewport: { width: 1280, height: 1000 }
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
   });
   const page = await context.newPage();
 
-  try {
-    console.log("📅 Navigating to X.com/adn_futbolero_...");
-    
-    // Use a slightly different URL that sometimes bypasses simple blocks
-    await page.goto("https://x.com/adn_futbolero_", { 
-      waitUntil: "domcontentloaded",
-      timeout: 60000 
-    });
-    
-    console.log("⏳ Waiting for content to appear...");
-    
-    // Wait for either tweets OR a login wall
+  let tweets = [];
+  let success = false;
+
+  for (const instance of instances) {
     try {
-      await page.waitForSelector('article[data-testid="tweet"]', { timeout: 30000 });
-    } catch (e) {
-      console.log("⚠️ Tweets not found immediately. Checking for blocks or login walls...");
-      await page.screenshot({ path: "scraper-error.png", fullPage: true });
-      throw new Error("Could not find tweets. See scraper-error.png for what X is showing.");
-    }
-
-    console.log("🔍 Extracting tweets...");
-    const tweets = await page.evaluate(() => {
-      const tweetElements = Array.from(document.querySelectorAll('article[data-testid="tweet"]')).slice(0, 10);
+      const url = `${instance}/adn_futbolero_`;
+      console.log(`📅 Trying instance: ${url}`);
       
-      return tweetElements.map(el => {
-        const textEl = el.querySelector('div[data-testid="tweetText"]');
-        const timeEl = el.querySelector("time");
-        const linkEl = el.querySelector('a[href*="/status/"]');
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
+      
+      // Wait for timeline items
+      await page.waitForSelector(".timeline-item", { timeout: 10000 });
+
+      console.log("🔍 Extracting tweets from mirror (excluding pinned)...");
+      tweets = await page.evaluate((instanceUrl) => {
+        // Grab more than 10 to account for potential pinned tweet
+        const allItems = Array.from(document.querySelectorAll(".timeline-item:not(.show-more)")).slice(0, 15);
         
-        // Extract Media (Images)
-        const imageEls = Array.from(el.querySelectorAll('div[data-testid="tweetPhoto"] img'));
-        const images = imageEls.map(img => img.src);
+        const filtered = allItems.filter(el => {
+          // Check if this is a pinned tweet
+          const isPinned = el.querySelector(".pinned");
+          return !isPinned;
+        });
 
-        return {
-          id: linkEl ? linkEl.href.split("/").pop() : Math.random().toString(),
-          text: textEl ? textEl.innerText : "",
-          timestamp: timeEl ? timeEl.getAttribute("datetime") : new Date().toISOString(),
-          link: linkEl ? `https://x.com${linkEl.getAttribute("href")}` : "#",
-          images: images
-        };
-      });
-    });
+        // Now take the top 10
+        return filtered.slice(0, 10).map(el => {
+          const contentEl = el.querySelector(".tweet-content");
+          const dateEl = el.querySelector(".tweet-date a");
+          const imageEls = Array.from(el.querySelectorAll(".attachments img"));
+          
+          const relativeLink = dateEl ? dateEl.getAttribute("href") : "";
+          const tweetId = relativeLink.split("/").pop().split("#")[0];
+          const xLink = `https://x.com/adn_futbolero_/status/${tweetId}`;
 
-    if (tweets.length === 0) {
-      await page.screenshot({ path: "scraper-empty.png", fullPage: true });
-      throw new Error("Found 0 tweets. Check scraper-empty.png");
+          const images = imageEls.map(img => {
+            let src = img.src;
+            if (src.startsWith("/")) {
+               src = new URL(src, instanceUrl).href;
+            }
+            return src;
+          });
+
+          return {
+            id: tweetId || Math.random().toString(),
+            text: contentEl ? contentEl.innerText.trim() : "",
+            timestamp: dateEl ? dateEl.getAttribute("title") : new Date().toISOString(),
+            link: xLink,
+            images: images
+          };
+        });
+      }, instance);
+
+      if (tweets.length > 0) {
+        success = true;
+        console.log(`✅ Successfully scraped ${tweets.length} tweets from ${instance}`);
+        break; 
+      }
+    } catch (err) {
+      console.log(`⚠️ Instance ${instance} failed or timed out. Trying next...`);
     }
+  }
 
-    console.log(`✅ Successfully scraped ${tweets.length} tweets.`);
-    
+  if (!success) {
+    console.error("❌ All Nitter instances failed. X.com might be heavily blocking or instances are down.");
+    await page.screenshot({ path: "nitter-failure.png" });
+    process.exit(1);
+  }
+
+  try {
     // Sync with our API
+    console.log("📤 Sending tweets to ADN Sync API...");
     const response = await fetch("https://adn-forecast.vercel.app/api/social/sync", {
       method: "POST",
       headers: {
@@ -72,15 +98,10 @@ async function scrapeTweets() {
     });
 
     const result = await response.json();
-    console.log("📤 Sync Result:", result);
+    console.log("✅ Sync Result:", result);
 
   } catch (error) {
-    console.error("❌ Scraper failed:", error.message);
-    // Ensure we have a screenshot of the failure
-    try {
-        await page.screenshot({ path: "scraper-failure.png", fullPage: true });
-        console.log("📸 Screenshot saved to scraper-failure.png");
-    } catch (sErr) {}
+    console.error("❌ API Sync failed:", error.message);
     process.exit(1);
   } finally {
     await browser.close();
