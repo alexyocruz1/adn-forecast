@@ -3,8 +3,10 @@ import Header from "@/components/Header";
 import SidebarNavigation from "@/components/SidebarNavigation";
 import ForecastGrid from "@/components/ForecastGrid";
 import LoadingState from "@/components/LoadingState";
+import TwitterFeed from "@/components/TwitterFeed";
 import { getCachedForecasts } from "@/lib/cache";
 import { ForecastResult } from "@/lib/types";
+import Link from "next/link";
 
 // Revalidate every 5 minutes at the edge.
 export const revalidate = 300;
@@ -108,7 +110,9 @@ async function ForecastsSection({
           </p>
         </div>
       ) : (
-        <ForecastGrid forecasts={forecasts} />
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <ForecastGrid forecasts={forecasts} />
+        </div>
       )}
     </section>
   );
@@ -117,9 +121,9 @@ async function ForecastsSection({
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string; league?: string }>;
+  searchParams: Promise<{ date?: string; league?: string; view?: string }>;
 }) {
-  const { date: filterDate, league: filterLeague } = await searchParams;
+  const { date: filterDate, league: filterLeague, view: activeView } = await searchParams;
   const todayUtc = new Date().toISOString().split("T")[0];
   const tomorrowUtc = getTomorrowUtc(todayUtc);
 
@@ -155,67 +159,75 @@ export default async function Home({
         <Header />
         
         <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-10 bg-bg-deep rounded-xl my-4 min-h-screen">
-          {filterLeague && (
-            <div className="mb-8 flex items-center justify-between border-b border-border pb-4">
-               <div>
-                 <h1 className="text-text-primary font-display text-xl uppercase tracking-tighter">
-                   {filterDate === tomorrowUtc ? "Mañana" : "Hoy"} — {todayLeagues.find(l => l.code === filterLeague)?.name || tomorrowLeagues.find(l => l.code === filterLeague)?.name || "Liga"}
-                 </h1>
-                 <p className="text-text-muted text-xs font-body mt-1">Filtrando pronósticos seleccionados</p>
-               </div>
-               <Link href="/" className="text-xs font-body text-green-glow hover:underline uppercase tracking-widest">
-                 Ver Todo
-               </Link>
+          {activeView === "social" ? (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+               <TwitterFeed />
             </div>
-          )}
+          ) : (
+            <>
+              {filterLeague && (
+                <div className="mb-8 flex items-center justify-between border-b border-border/20 pb-4 animate-in fade-in duration-500">
+                   <div>
+                     <h1 className="text-text-primary font-display text-xl uppercase tracking-tighter">
+                       {filterDate === tomorrowUtc ? "Mañana" : "Hoy"} — {todayLeagues.find(l => l.code === filterLeague)?.name || tomorrowLeagues.find(l => l.code === filterLeague)?.name || "Liga"}
+                     </h1>
+                     <p className="text-text-muted text-xs font-body mt-1 uppercase tracking-widest opacity-60">Filtrando pronósticos seleccionados</p>
+                   </div>
+                   <Link href="/" className="text-xs font-body text-green-glow hover:underline uppercase tracking-widest border border-green-glow/20 px-3 py-1 rounded-full transition-all hover:bg-green-glow/10">
+                     Ver Todo
+                   </Link>
+                </div>
+              )}
 
-          {showToday && (
-            <Suspense fallback={<LoadingState />}>
-              <ForecastsSection
-                dateStr={todayUtc}
-                label="HOY"
-                displayDate={formatDisplayDate(todayUtc)}
-                showLegend={true}
-                leagueFilter={filterDate === todayUtc || !filterDate ? filterLeague : undefined}
-              />
-            </Suspense>
-          )}
+              {showToday && (
+                <ForecastsSection
+                  dateStr={todayUtc}
+                  label="HOY"
+                  displayDate={formatDisplayDate(todayUtc)}
+                  showLegend={true}
+                  leagueFilter={filterDate === todayUtc || !filterDate ? filterLeague : undefined}
+                />
+              )}
 
-          {showToday && showTomorrow && !filterLeague && (
-            <div className="relative my-4 mb-12">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-border/20"></div>
-              </div>
-              <div className="relative flex justify-center">
-                <span className="px-4 bg-bg-deep text-text-muted/40 text-xs font-body uppercase tracking-widest">
-                  Próximos partidos
-                </span>
-              </div>
-            </div>
-          )}
+              {showToday && showTomorrow && !filterLeague && (
+                <div className="relative my-4 mb-12 animate-in fade-in duration-1000">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-border/20"></div>
+                  </div>
+                  <div className="relative flex justify-center">
+                    <span className="px-4 bg-bg-deep text-text-muted/40 text-[10px] font-display uppercase tracking-[0.3em]">
+                      Próximos partidos
+                    </span>
+                  </div>
+                </div>
+              )}
 
-          {showTomorrow && (
-            <Suspense fallback={<LoadingState />}>
-              <ForecastsSection
-                dateStr={tomorrowUtc}
-                label="MAÑANA"
-                displayDate={formatDisplayDate(tomorrowUtc)}
-                showLegend={!showToday}
-                leagueFilter={filterDate === tomorrowUtc || !filterDate ? filterLeague : undefined}
-              />
-            </Suspense>
+              {showTomorrow && (
+                <ForecastsSection
+                  dateStr={tomorrowUtc}
+                  label="MAÑANA"
+                  displayDate={formatDisplayDate(tomorrowUtc)}
+                  showLegend={!showToday}
+                  leagueFilter={filterDate === tomorrowUtc || !filterDate ? filterLeague : undefined}
+                />
+              )}
+            </>
           )}
         </main>
 
-        <footer className="border-t border-border bg-bg-card py-8 mt-12">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="font-display tracking-wide text-xl text-text-primary">ADN FUTBOLERO</span>
+        <footer className="border-t border-border bg-bg-card py-12">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center gap-8">
+            <div className="flex flex-col items-center md:items-start gap-2">
+              <span className="font-display tracking-widest text-2xl text-text-primary uppercase">ADN FUTBOLERO</span>
+              <p className="text-[10px] font-body text-text-muted uppercase tracking-[0.2em] opacity-40">Inteligencia Artificial aplicada al Deporte</p>
             </div>
-            <div className="flex items-center gap-2 text-text-soft text-sm font-body">
+            <div className="flex items-center gap-4 text-text-soft text-sm font-body">
               <span>Powered by AI</span>
               <span className="w-1 h-1 rounded-full bg-green-brand"></span>
-              <a href="https://twitter.com/adn_futbolero_" target="_blank" rel="noreferrer" className="hover:text-green-glow transition-colors">
+              <a href="https://twitter.com/adn_futbolero_" target="_blank" rel="noreferrer" className="hover:text-green-glow transition-all duration-300 flex items-center gap-2 group">
+                <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current group-hover:scale-110 transition-transform">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.008 5.961h-1.96z"></path>
+                </svg>
                 @adn_futbolero_
               </a>
             </div>
@@ -225,6 +237,3 @@ export default async function Home({
     </div>
   );
 }
-
-// Helper to make the "Ver Todo" link work in the server component
-import Link from "next/link";

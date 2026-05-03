@@ -51,9 +51,33 @@ export default function ForecastCard({ data }: Props) {
   return (
     <article className={`bg-bg-card rounded-lg overflow-hidden flex flex-col h-full border border-border transition-all duration-300 ${predictionClass}`}>
       {/* Header */}
-      <div className="px-4 py-2 bg-bg-card-hover border-b border-border flex justify-between items-center">
-        <span className="font-display tracking-wider text-text-soft text-sm">{competition}</span>
-        <span className="font-body text-xs text-text-muted">{timeString}</span>
+      <div className="px-4 py-2 bg-bg-card-hover border-b border-border flex justify-between items-center relative group/header">
+        <div className="flex flex-col">
+          <span className="font-display tracking-wider text-text-soft text-[10px] uppercase">{competition}</span>
+          <span className="font-body text-[10px] text-text-muted">{timeString}</span>
+        </div>
+        
+        <button 
+          onClick={() => {
+            const shareData = {
+              title: `Pronóstico: ${homeTeam.name} vs ${awayTeam.name}`,
+              text: `IA de ADN Futbolero predice ${forecast.scoreSuggestion} para el ${homeTeam.name} vs ${awayTeam.name}. factor clave: ${forecast.keyFactor}`,
+              url: window.location.href,
+            };
+            if (navigator.share) {
+              navigator.share(shareData).catch(console.error);
+            } else {
+              navigator.clipboard.writeText(window.location.href);
+              alert("¡Enlace copiado al portapapeles!");
+            }
+          }}
+          className="p-1.5 rounded-full hover:bg-green-glow/20 text-text-muted hover:text-green-glow transition-all"
+          title="Compartir"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+          </svg>
+        </button>
       </div>
 
       <div className="p-5 flex-grow flex flex-col">

@@ -71,3 +71,28 @@ export async function setCachedForecasts(date: string, forecasts: ForecastResult
   }
 }
 
+/**
+ * Gets the latest social media updates from cache
+ */
+export async function getSocialUpdates(): Promise<any[]> {
+  try {
+    const cached = await kv.get<string>("social:updates");
+    if (!cached) return [];
+    return typeof cached === 'string' ? JSON.parse(cached) : (cached as any[]);
+  } catch (error) {
+    console.error("[cache] Error getting social updates:", error);
+    return [];
+  }
+}
+
+/**
+ * Stores social media updates
+ */
+export async function setSocialUpdates(updates: any[]): Promise<void> {
+  try {
+    await kv.set("social:updates", JSON.stringify(updates));
+  } catch (error) {
+    console.error("[cache] Error setting social updates:", error);
+  }
+}
+

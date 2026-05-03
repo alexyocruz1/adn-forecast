@@ -28,6 +28,7 @@ export default function SidebarNavigation({
   const searchParams = useSearchParams();
   const router = useRouter();
   
+  const activeView = searchParams.get("view");
   const activeDate = searchParams.get("date");
   const activeLeague = searchParams.get("league");
 
@@ -56,7 +57,9 @@ export default function SidebarNavigation({
     }
   }, [isOpen]);
 
-  const isActive = (date?: string, league?: string) => {
+  const isActive = (date?: string, league?: string, view?: string) => {
+    if (view === "social") return activeView === "social";
+    if (activeView === "social") return false;
     if (!date && !league) return !activeDate && !activeLeague;
     return activeDate === date && activeLeague === league;
   };
@@ -105,18 +108,33 @@ export default function SidebarNavigation({
           </div>
 
           <nav className="flex-grow overflow-y-auto space-y-8 custom-scrollbar pr-2">
-            {/* View All Option */}
-            <button 
-              onClick={() => navigate("/")}
-              className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all duration-300 font-body text-sm ${
-                isActive() 
-                  ? "bg-green-glow/10 text-green-glow border border-green-glow/20" 
-                  : "text-text-muted hover:bg-bg-card-hover border border-transparent text-left"
-              }`}
-            >
-              <span className="text-lg">🏠</span>
-              <span className="font-medium tracking-wide uppercase">Ver Todo</span>
-            </button>
+            <div className="space-y-2">
+              {/* View All Option */}
+              <button 
+                onClick={() => navigate("/")}
+                className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all duration-300 font-body text-sm ${
+                  isActive() 
+                    ? "bg-green-glow/10 text-green-glow border border-green-glow/20 shadow-[0_0_15px_rgba(34,197,94,0.1)]" 
+                    : "text-text-muted hover:bg-bg-card-hover border border-transparent text-left"
+                }`}
+              >
+                <span className="text-lg">🏠</span>
+                <span className="font-medium tracking-wide uppercase">Pronósticos</span>
+              </button>
+
+              {/* Social Option */}
+              <button 
+                onClick={() => navigate("/?view=social")}
+                className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all duration-300 font-body text-sm ${
+                  isActive(undefined, undefined, "social") 
+                    ? "bg-green-glow/10 text-green-glow border border-green-glow/20 shadow-[0_0_15px_rgba(34,197,94,0.1)]" 
+                    : "text-text-muted hover:bg-bg-card-hover border border-transparent text-left"
+                }`}
+              >
+                <span className="text-lg">📡</span>
+                <span className="font-medium tracking-wide uppercase">Comunidad</span>
+              </button>
+            </div>
 
             {/* Today Section */}
             <div className="space-y-3">
