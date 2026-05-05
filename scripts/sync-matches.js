@@ -1,22 +1,8 @@
 const { chromium } = require("playwright");
 const { kv } = require("@vercel/kv");
 
-// We'll use the registry we created to know which leagues to track
-const LEAGUE_REGISTRY = {
-  "PL": { name: "Premier League", besoccerPath: "premier_league" },
-  "PD": { name: "La Liga", besoccerPath: "primera_division" },
-  "SA": { name: "Serie A", besoccerPath: "serie_a" },
-  "BL1": { name: "Bundesliga", besoccerPath: "bundesliga" },
-  "FL1": { name: "Ligue 1", besoccerPath: "ligue_1" },
-  "DED": { name: "Eredivisie", besoccerPath: "eredivisie" },
-  "PPL": { name: "Liga Portugal", besoccerPath: "primeira_liga" },
-  "UCL": { name: "Champions League", besoccerPath: "champions_league" },
-  "UEL": { name: "Europa League", besoccerPath: "uefa_europa_league" },
-  "UECL": { name: "Conference League", besoccerPath: "uefa_conference_league" },
-  "CL": { name: "Copa Libertadores", besoccerPath: "copa_libertadores" },
-  "WC": { name: "World Cup", besoccerPath: "world_cup" },
-  "EC": { name: "Euro", besoccerPath: "eurocopa" }
-};
+// We use the central registry so we only ever have to update lib/leagues.json
+const LEAGUE_REGISTRY = require("../lib/leagues.json");
 
 async function syncMatches() {
   console.log("🚀 Starting Sports Mirror Sync (BeSoccer)...");

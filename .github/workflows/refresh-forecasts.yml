@@ -37,7 +37,11 @@ jobs:
         run: |
           TODAY=$(date -u +%Y-%m-%d)
           echo "Refreshing forecasts for today: $TODAY"
-          for LEAGUE in PL PD SA BL1 FL1 DED PPL ELC BSA CL WC EC; do
+          # Dynamically read leagues from our Single Source of Truth
+          LEAGUES=$(node -e "console.log(Object.keys(require('./lib/leagues.json')).join(' '))")
+          echo "Target Leagues: $LEAGUES"
+          
+          for LEAGUE in $LEAGUES; do
             echo "Fetching $LEAGUE..."
             RESPONSE=$(curl --fail --silent --show-error \
               -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
@@ -72,7 +76,11 @@ jobs:
         run: |
           TOMORROW=$(date -u -d "+1 day" +%Y-%m-%d 2>/dev/null || date -u -v+1d +%Y-%m-%d)
           echo "Refreshing forecasts for tomorrow: $TOMORROW"
-          for LEAGUE in PL PD SA BL1 FL1 DED PPL ELC BSA CL WC EC; do
+          
+          # Dynamically read leagues from our Single Source of Truth
+          LEAGUES=$(node -e "console.log(Object.keys(require('./lib/leagues.json')).join(' '))")
+          
+          for LEAGUE in $LEAGUES; do
             echo "Fetching $LEAGUE..."
             RESPONSE=$(curl --fail --silent --show-error \
               -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
