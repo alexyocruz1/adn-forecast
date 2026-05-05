@@ -3,13 +3,18 @@ const { kv } = require("@vercel/kv");
 
 const LEAGUE_REGISTRY = require("../lib/leagues.json");
 
+// Build a fast lookup map: sofascoreId -> leagueCode
+const ID_TO_CODE = {};
+for (const [code, cfg] of Object.entries(LEAGUE_REGISTRY)) {
+  if (cfg.sofascoreId) ID_TO_CODE[cfg.sofascoreId] = code;
+}
+
 async function fetchWithRetry(page, url, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
       const text = await page.evaluate(() => document.body.innerText);
-      const data = JSON.parse(text);
-      return data;
+      return JSON.parse(text);
     } catch (e) {
       if (i === retries - 1) return null;
       await page.waitForTimeout(2000);
@@ -18,19 +23,55 @@ async function fetchWithRetry(page, url, retries = 3) {
   return null;
 }
 
+// Must be called once after browser launch to set cookies/referer for image fetches
+async function primeContext(page) {
+  try {
+    await page.goto("https://www.sofascore.com/", { waitUntil: "domcontentloaded", timeout: 15000 });
+    console.log("🍪 Browser context primed with Sofascore cookies.");
+  } catch (e) {
+    console.log("⚠️ Could not prime context:", e.message);
+  }
+}
+
+async function getLogoBase64(page, teamId) {
+  const cacheKey = `team_logo:${teamId}`;
+  const cached = await kv.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const res = await page.goto(
+      `https://api.sofascore.com/api/v1/team/${teamId}/image`,
+      { waitUntil: "networkidle", timeout: 10000 }
+    );
+    if (res && res.ok()) {
+      const buffer = await res.body();
+      const base64Url = `data:image/png;base64,${buffer.toString("base64")}`;
+      await kv.set(cacheKey, base64Url); // Indefinite cache — logos rarely change
+      return base64Url;
+    }
+  } catch (e) {
+    console.log(`      ⚠️ Could not fetch logo for team ${teamId}: ${e.message}`);
+  }
+  return "/images/adnlogo.png";
+}
+
 async function syncMatches() {
   console.log("🚀 Starting Sports Mirror Sync (Sofascore)...");
-  
+
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    viewport: { width: 1280, height: 1000 }
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    viewport: { width: 1280, height: 1000 },
   });
   const page = await context.newPage();
 
+  // Prime the browser with Sofascore's homepage so image requests pass WAF checks
+  await primeContext(page);
+
   const dates = [
-    new Date().toISOString().split("T")[0], // Today
-    new Date(Date.now() + 86400000).toISOString().split("T")[0] // Tomorrow
+    new Date().toISOString().split("T")[0], // Today UTC
+    new Date(Date.now() + 86400000).toISOString().split("T")[0], // Tomorrow UTC
   ];
 
   for (const date of dates) {
@@ -38,7 +79,7 @@ async function syncMatches() {
     try {
       const url = `https://api.sofascore.com/api/v1/sport/football/scheduled-events/${date}`;
       const data = await fetchWithRetry(page, url);
-      
+
       if (!data || !data.events) {
         console.log(`⚠️ No events found or failed to fetch for ${date}`);
         continue;
@@ -46,148 +87,140 @@ async function syncMatches() {
 
       const allMatches = {};
 
-      data.events.forEach(event => {
-        // Find if this league is in our registry
-        const title = event.tournament.uniqueTournament?.name || event.tournament.name;
-        
-        const leagueCode = Object.keys(LEAGUE_REGISTRY).find(code => {
-          const titleLower = title.toLowerCase();
-          const r = LEAGUE_REGISTRY[code];
-          
-          if (titleLower.includes(r.name.toLowerCase())) return true;
-          if (r.aliases && Array.isArray(r.aliases)) {
-            return r.aliases.some(alias => titleLower.includes(alias.toLowerCase()));
-          }
-          return false;
+      for (const event of data.events) {
+        // --- FIX 1: Match by exact Sofascore unique tournament ID, not fuzzy name ---
+        const uniqueId = event.tournament?.uniqueTournament?.id;
+        const leagueCode = uniqueId ? ID_TO_CODE[uniqueId] : undefined;
+
+        if (!leagueCode) continue;
+
+        if (!allMatches[leagueCode]) allMatches[leagueCode] = [];
+
+        allMatches[leagueCode].push({
+          id: event.id,
+          competition: LEAGUE_REGISTRY[leagueCode].name,
+          competitionCode: leagueCode,
+          // Use the fetched `date` as the date portion — Sofascore's scheduled-events
+          // endpoint groups by local date, so we respect that grouping instead of
+          // re-deriving from the UTC epoch (which can land on the prior calendar day).
+          utcDate: `${date}T${new Date(event.startTimestamp * 1000).toISOString().substring(11, 19)}Z`,
+          matchDate: date,
+          localTime: new Date(event.startTimestamp * 1000)
+            .toISOString()
+            .substring(11, 16),
+          season: new Date().getFullYear(),
+          homeTeam: {
+            id: event.homeTeam.id,
+            name: event.homeTeam.name,
+            crest: "", // Populated in deep scan
+          },
+          awayTeam: {
+            id: event.awayTeam.id,
+            name: event.awayTeam.name,
+            crest: "", // Populated in deep scan
+          },
+          matchUrl: `https://www.sofascore.com/football/match/${event.slug}/${event.customId}`,
         });
+      }
 
-        if (leagueCode) {
-          if (!allMatches[leagueCode]) allMatches[leagueCode] = [];
-          
-          const time = new Date(event.startTimestamp * 1000).toISOString().substring(11, 16); // HH:mm
-          
-          allMatches[leagueCode].push({
-            id: event.id,
-            competition: LEAGUE_REGISTRY[leagueCode].name,
-            competitionCode: leagueCode,
-            utcDate: new Date(event.startTimestamp * 1000).toISOString(),
-            localTime: time,
-            season: new Date().getFullYear(),
-            homeTeam: { 
-              id: event.homeTeam.id,
-              name: event.homeTeam.name, 
-              crest: "" // Will be populated with base64
-            },
-            awayTeam: { 
-              id: event.awayTeam.id,
-              name: event.awayTeam.name, 
-              crest: "" // Will be populated with base64
-            },
-            matchUrl: `https://www.sofascore.com/football/match/${event.slug}/${event.customId}`
-          });
-        }
-      });
-
-      // --- DEEP SCRAPE FOR ELITE CONTEXT ---
+      // --- DEEP SCRAPE FOR ELITE CONTEXT + LOGOS ---
       for (const leagueCode in allMatches) {
-        console.log(`\n🔍 Deep Scanning ${allMatches[leagueCode].length} matches in ${leagueCode}...`);
-        for (const match of allMatches[leagueCode]) {
+        const matches = allMatches[leagueCode];
+        console.log(`\n🔍 Deep Scanning ${matches.length} matches in ${leagueCode}...`);
+
+        for (const match of matches) {
           try {
-            console.log(`   -> Analyzing ${match.homeTeam.name} vs ${match.awayTeam.name}...`);
-            
+            console.log(`   -> ${match.homeTeam.name} vs ${match.awayTeam.name}`);
+
             // 1. Referee
-            const eventData = await fetchWithRetry(page, `https://api.sofascore.com/api/v1/event/${match.id}`);
+            const eventData = await fetchWithRetry(
+              page,
+              `https://api.sofascore.com/api/v1/event/${match.id}`
+            );
             const refereeName = eventData?.event?.referee?.name || "Oficial";
 
-            // 2. Tactical Shape
-            const lineupsData = await fetchWithRetry(page, `https://api.sofascore.com/api/v1/event/${match.id}/lineups`);
-            const tacticalHome = lineupsData?.home?.formation || "4-3-3";
-            const tacticalAway = lineupsData?.away?.formation || "4-4-2";
+            // 2. Tactical Shape (lineups may not exist for future matches)
+            const lineupsData = await fetchWithRetry(
+              page,
+              `https://api.sofascore.com/api/v1/event/${match.id}/lineups`
+            );
+            const tacticalHome = lineupsData?.home?.formation || null;
+            const tacticalAway = lineupsData?.away?.formation || null;
 
-            // 3. Momentum (Form)
+            // 3. Momentum (last 5 results per team)
             const getForm = async (teamId) => {
-              const formEvents = await fetchWithRetry(page, `https://api.sofascore.com/api/v1/team/${teamId}/events/last/0`);
-              if (!formEvents || !formEvents.events) return "?????";
-              
-              const recent = formEvents.events.slice(0, 5);
+              const formEvents = await fetchWithRetry(
+                page,
+                `https://api.sofascore.com/api/v1/team/${teamId}/events/last/0`
+              );
+              if (!formEvents?.events) return "?????";
               let formStr = "";
-              for (const e of recent) {
-                if (!e.homeScore || e.homeScore.current === undefined) continue;
-                if (e.homeScore.current > e.awayScore.current) {
-                  formStr += e.homeTeam.id == teamId ? 'W' : 'L';
-                } else if (e.homeScore.current < e.awayScore.current) {
-                  formStr += e.homeTeam.id == teamId ? 'L' : 'W';
-                } else {
-                  formStr += 'D';
-                }
+              for (const e of formEvents.events.slice(0, 5)) {
+                if (e.homeScore?.current === undefined) continue;
+                const homeWin = e.homeScore.current > e.awayScore.current;
+                const awayWin = e.homeScore.current < e.awayScore.current;
+                if (homeWin) formStr += e.homeTeam.id == teamId ? "W" : "L";
+                else if (awayWin) formStr += e.homeTeam.id == teamId ? "L" : "W";
+                else formStr += "D";
               }
               return formStr || "?????";
             };
 
-            const homeForm = await getForm(match.homeTeam.id);
-            const awayForm = await getForm(match.awayTeam.id);
+            const [homeForm, awayForm] = await Promise.all([
+              getForm(match.homeTeam.id),
+              getForm(match.awayTeam.id),
+            ]);
 
             match.eliteContext = {
-              referee: {
-                name: refereeName,
-                yellowCardsAvg: 4.2, 
-                redCardsTotal: 2
-              },
+              referee: { name: refereeName, yellowCardsAvg: 4.2, redCardsTotal: 2 },
               tacticalShape: {
-                home: tacticalHome,
-                away: tacticalAway
+                home: tacticalHome || "4-3-3",
+                away: tacticalAway || "4-4-2",
               },
-              momentum: `Home Form: ${homeForm} | Away Form: ${awayForm}`
+              momentum: `Home Form: ${homeForm} | Away Form: ${awayForm}`,
             };
 
-            // 4. Team Logos (Base64 from KV cache or fetched via Playwright)
-            const getLogoBase64 = async (teamId) => {
-              const cacheKey = `team_logo:${teamId}`;
-              let base64Url = await kv.get(cacheKey);
-              if (base64Url) return base64Url;
+            // 4. Logos — cached in KV to avoid 403 on next.js Image component
+            const [homeCrest, awayCrest] = await Promise.all([
+              getLogoBase64(page, match.homeTeam.id),
+              getLogoBase64(page, match.awayTeam.id),
+            ]);
+            match.homeTeam.crest = homeCrest;
+            match.awayTeam.crest = awayCrest;
 
-              try {
-                // Playwright bypasses the 403 WAF
-                const res = await page.goto(`https://api.sofascore.com/api/v1/team/${teamId}/image`, { waitUntil: "networkidle", timeout: 10000 });
-                if (res.ok()) {
-                  const buffer = await res.body();
-                  base64Url = `data:image/png;base64,${buffer.toString("base64")}`;
-                  await kv.set(cacheKey, base64Url); // Cache indefinitely
-                  return base64Url;
-                }
-              } catch (e) {
-                console.log(`      ⚠️ Could not fetch logo for ${teamId}: ${e.message}`);
-              }
-              return "/images/adnlogo.png";
-            };
-
-            match.homeTeam.crest = await getLogoBase64(match.homeTeam.id);
-            match.awayTeam.crest = await getLogoBase64(match.awayTeam.id);
-
-            await page.waitForTimeout(500); // Respectful delay
+            await page.waitForTimeout(300); // Be respectful
           } catch (e) {
-            console.log(`      ⚠️ Could not deep scrape: ${e.message}`);
+            console.log(`      ⚠️ Deep scrape error: ${e.message}`);
           }
         }
       }
 
       // --- SAVE TO KV ---
       for (const leagueCode in allMatches) {
-        // Set defaults to match the expected Match type
-        const matchesToStore = allMatches[leagueCode].map(m => {
-          return {
-            ...m,
-            homeTeam: { ...m.homeTeam, position: 0, played: 0, won: 0, draw: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "" },
-            awayTeam: { ...m.awayTeam, position: 0, played: 0, won: 0, draw: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "" }
-          };
-        });
+        const matchesToStore = allMatches[leagueCode].map((m) => ({
+          ...m,
+          homeTeam: {
+            ...m.homeTeam,
+            position: 0, played: 0, won: 0, draw: 0, lost: 0,
+            goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "",
+          },
+          awayTeam: {
+            ...m.awayTeam,
+            position: 0, played: 0, won: 0, draw: 0, lost: 0,
+            goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "",
+          },
+        }));
 
         if (matchesToStore.length > 0) {
-          console.log(`📤 Storing ${matchesToStore.length} matches for ${leagueCode} on ${date}...`);
-          await kv.set(`matches:${date}:${leagueCode}`, matchesToStore, { ex: 72 * 3600 });
+          console.log(
+            `📤 Storing ${matchesToStore.length} matches for ${leagueCode} on ${date}...`
+          );
+          // Store under the fetched date key — this is the source of truth
+          await kv.set(`matches:${date}:${leagueCode}`, matchesToStore, {
+            ex: 72 * 3600,
+          });
         }
       }
-
     } catch (e) {
       console.error(`❌ Error processing ${date}:`, e.message);
     }

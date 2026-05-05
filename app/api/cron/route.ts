@@ -6,7 +6,7 @@ import { ForecastResult } from "@/lib/types";
 import { kv } from "@vercel/kv";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 // Hours before cached data is considered stale and needs a refresh.
 const REFRESH_THRESHOLD_HOURS = 4;
