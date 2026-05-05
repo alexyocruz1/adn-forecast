@@ -71,8 +71,8 @@ export async function GET(request: NextRequest) {
 
     if (matches.length === 0) {
       console.log(`[cron] No matches found for ${league} on ${targetDate}.`);
-      // Stamp the timestamp so we don't re-scan for the next 4h
-      await kv.set(`forecasts:generated_at:${targetDate}:${league}`, new Date().toISOString(), { ex: 48 * 3600 });
+      // Stamp the timestamp so we don't spam, but use a short 15-minute expiration instead of 48h
+      await kv.set(`forecasts:generated_at:${targetDate}:${league}`, new Date().toISOString(), { ex: 900 });
       return NextResponse.json({ success: true, matchCount: 0, date: targetDate, league, generatedAt: new Date().toISOString() });
     }
 

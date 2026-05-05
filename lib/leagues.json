@@ -1,7 +1,7 @@
 {
-  "UCL": { "name": "Champions League", "besoccerPath": "champions_league" },
-  "UEL": { "name": "Europa League", "besoccerPath": "uefa_europa_league" },
-  "UECL": { "name": "Conference League", "besoccerPath": "uefa_conference_league" },
+  "UCL": { "name": "Champions League", "besoccerPath": "champions_league", "aliases": ["uefa champions league"] },
+  "UEL": { "name": "Europa League", "besoccerPath": "uefa_europa_league", "aliases": ["uefa europa league"] },
+  "UECL": { "name": "Conference League", "besoccerPath": "uefa_conference_league", "aliases": ["uefa europa conference league", "uefa conference league"] },
   "CONCACAF": { "name": "CONCACAF Champions Cup", "besoccerPath": "concacaf_champions_league", "aliases": ["concacaf champions league", "champions cup", "concacaf"] },
   "CS": { "name": "Copa Sudamericana", "besoccerPath": "copa_sudamericana", "aliases": ["conmebol sudamericana", "sudamericana"] },
   "PL": { "name": "Premier League", "besoccerPath": "premier_league" },
@@ -10,7 +10,7 @@
   "BL1": { "name": "Bundesliga", "besoccerPath": "bundesliga" },
   "FL1": { "name": "Ligue 1", "besoccerPath": "ligue_1" },
   "DED": { "name": "Eredivisie", "besoccerPath": "eredivisie" },
-  "PPL": { "name": "Liga Portugal", "besoccerPath": "primeira_liga", "aliases": ["primeira liga", "liga portugal"] },
+  "PPL": { "name": "Liga Portugal", "besoccerPath": "primeira_liga", "aliases": ["primeira liga", "liga portugal", "liga portugal betclic"] },
   "CL": { "name": "Copa Libertadores", "besoccerPath": "copa_libertadores", "aliases": ["conmebol libertadores", "libertadores"] },
   "WC": { "name": "World Cup", "besoccerPath": "world_cup" },
   "EC": { "name": "Euro", "besoccerPath": "eurocopa" }
