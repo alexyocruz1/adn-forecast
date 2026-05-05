@@ -1,17 +1,101 @@
 {
-  "UCL":      { "name": "Champions League",      "sofascoreId": 7,   "aliases": ["uefa champions league"] },
-  "UEL":      { "name": "Europa League",          "sofascoreId": 679, "aliases": ["uefa europa league"] },
-  "UECL":     { "name": "Conference League",      "sofascoreId": 17015, "aliases": ["uefa europa conference league", "uefa conference league"] },
-  "CONCACAF": { "name": "CONCACAF Champions Cup", "sofascoreId": 498, "aliases": ["concacaf champions cup", "concacaf champions league"] },
-  "CS":       { "name": "Copa Sudamericana",      "sofascoreId": 480, "aliases": ["conmebol sudamericana"] },
-  "CL":       { "name": "Copa Libertadores",      "sofascoreId": 384, "aliases": ["conmebol libertadores"] },
-  "PL":       { "name": "Premier League",         "sofascoreId": 17  },
-  "PD":       { "name": "La Liga",                "sofascoreId": 8,   "aliases": ["laliga"] },
-  "SA":       { "name": "Serie A",                "sofascoreId": 23  },
-  "BL1":      { "name": "Bundesliga",             "sofascoreId": 35  },
-  "FL1":      { "name": "Ligue 1",                "sofascoreId": 34  },
-  "DED":      { "name": "Eredivisie",             "sofascoreId": 37  },
-  "PPL":      { "name": "Liga Portugal",          "sofascoreId": 238, "aliases": ["primeira liga", "liga portugal betclic"] },
-  "WC":       { "name": "World Cup",              "sofascoreId": 16  },
-  "EC":       { "name": "Euro",                   "sofascoreId": 1    }
+  "UCL": {
+    "name": "Champions League",
+    "sofascoreId": 7,
+    "aliases": [
+      "uefa champions league"
+    ]
+  },
+  "UEL": {
+    "name": "Europa League",
+    "sofascoreId": 679,
+    "aliases": [
+      "uefa europa league"
+    ]
+  },
+  "UECL": {
+    "name": "Conference League",
+    "sofascoreId": 17015,
+    "aliases": [
+      "uefa europa conference league",
+      "uefa conference league"
+    ]
+  },
+  "CONCACAF": {
+    "name": "CONCACAF Champions Cup",
+    "sofascoreId": 498,
+    "aliases": [
+      "concacaf champions cup",
+      "concacaf champions league"
+    ]
+  },
+  "CS": {
+    "name": "Copa Sudamericana",
+    "sofascoreId": 480,
+    "aliases": [
+      "conmebol sudamericana"
+    ]
+  },
+  "CL": {
+    "name": "Copa Libertadores",
+    "sofascoreId": 384,
+    "aliases": [
+      "conmebol libertadores"
+    ]
+  },
+  "PL": {
+    "name": "Premier League",
+    "sofascoreId": 17
+  },
+  "PD": {
+    "name": "La Liga",
+    "sofascoreId": 8,
+    "aliases": [
+      "laliga"
+    ]
+  },
+  "SA": {
+    "name": "Serie A",
+    "sofascoreId": 23
+  },
+  "BL1": {
+    "name": "Bundesliga",
+    "sofascoreId": 35
+  },
+  "FL1": {
+    "name": "Ligue 1",
+    "sofascoreId": 34
+  },
+  "DED": {
+    "name": "Eredivisie",
+    "sofascoreId": 37
+  },
+  "PPL": {
+    "name": "Liga Portugal",
+    "sofascoreId": 238,
+    "aliases": [
+      "primeira liga",
+      "liga portugal betclic"
+    ]
+  },
+  "WC": {
+    "name": "World Cup",
+    "sofascoreId": 16
+  },
+  "EC": {
+    "name": "Euro",
+    "sofascoreId": 1
+  },
+  "MLS": {
+    "name": "Major League Soccer",
+    "sofascoreId": 242
+  },
+  "LigaMX": {
+    "name": "Liga MX, Clausura",
+    "sofascoreId": 11620
+  },
+  "LigaBetcris": {
+    "name": "Liga Betcris de Honduras, Clausura",
+    "sofascoreId": 11614
+  }
 }
