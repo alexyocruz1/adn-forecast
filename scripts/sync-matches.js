@@ -76,12 +76,12 @@ async function syncMatches() {
             homeTeam: { 
               id: event.homeTeam.id,
               name: event.homeTeam.name, 
-              crest: `https://api.sofascore.com/api/v1/team/${event.homeTeam.id}/image`
+              crest: "" // Will be populated with base64
             },
             awayTeam: { 
               id: event.awayTeam.id,
               name: event.awayTeam.name, 
-              crest: `https://api.sofascore.com/api/v1/team/${event.awayTeam.id}/image`
+              crest: "" // Will be populated with base64
             },
             matchUrl: `https://www.sofascore.com/football/match/${event.slug}/${event.customId}`
           });
@@ -139,6 +139,30 @@ async function syncMatches() {
               },
               momentum: `Home Form: ${homeForm} | Away Form: ${awayForm}`
             };
+
+            // 4. Team Logos (Base64 from KV cache or fetched via Playwright)
+            const getLogoBase64 = async (teamId) => {
+              const cacheKey = `team_logo:${teamId}`;
+              let base64Url = await kv.get(cacheKey);
+              if (base64Url) return base64Url;
+
+              try {
+                // Playwright bypasses the 403 WAF
+                const res = await page.goto(`https://api.sofascore.com/api/v1/team/${teamId}/image`, { waitUntil: "networkidle", timeout: 10000 });
+                if (res.ok()) {
+                  const buffer = await res.body();
+                  base64Url = `data:image/png;base64,${buffer.toString("base64")}`;
+                  await kv.set(cacheKey, base64Url); // Cache indefinitely
+                  return base64Url;
+                }
+              } catch (e) {
+                console.log(`      ⚠️ Could not fetch logo for ${teamId}: ${e.message}`);
+              }
+              return "/images/adnlogo.png";
+            };
+
+            match.homeTeam.crest = await getLogoBase64(match.homeTeam.id);
+            match.awayTeam.crest = await getLogoBase64(match.awayTeam.id);
 
             await page.waitForTimeout(500); // Respectful delay
           } catch (e) {
