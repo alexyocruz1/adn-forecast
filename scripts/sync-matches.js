@@ -39,10 +39,23 @@ async function syncMatches() {
           const title = titleEl.innerText.trim();
           
           // Find if this league is in our registry
-          const leagueCode = Object.keys(registry).find(code => 
-            title.toLowerCase().includes(registry[code].name.toLowerCase()) ||
-            title.toLowerCase().includes(registry[code].besoccerPath.replace(/_/g, " ").toLowerCase())
-          );
+          const leagueCode = Object.keys(registry).find(code => {
+            const titleLower = title.toLowerCase();
+            const r = registry[code];
+            
+            // Check primary name
+            if (titleLower.includes(r.name.toLowerCase())) return true;
+            
+            // Check besoccer URL path formatting
+            if (titleLower.includes(r.besoccerPath.replace(/_/g, " ").toLowerCase())) return true;
+            
+            // Check new aliases array (for CONMEBOL, CONCACAF, etc.)
+            if (r.aliases && Array.isArray(r.aliases)) {
+              return r.aliases.some(alias => titleLower.includes(alias.toLowerCase()));
+            }
+            
+            return false;
+          });
 
           if (leagueCode) {
             console.log(`Found League: ${title} -> ${leagueCode}`);
