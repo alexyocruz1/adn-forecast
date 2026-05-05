@@ -10,13 +10,19 @@ interface Props {
 export default function ForecastCard({ data }: Props) {
   const { matchId, competition, utcDate, homeTeam, awayTeam, forecast } = data;
   
-  // Format local time
+  // Always format in UTC — prevents server/client hydration mismatch
+  // (Vercel server is UTC; without timeZone spec the client would use local tz)
   const date = new Date(utcDate);
   const timeString = date.toLocaleTimeString('es-ES', { 
     hour: '2-digit', 
     minute: '2-digit',
-    hour12: false 
+    hour12: false,
+    timeZone: 'UTC'
   });
+  // Show the date only when the match is NOT on today's UTC date (e.g. cross-midnight MAÑANA matches)
+  const matchDateStr = date.toISOString().split('T')[0];
+  const todayStr = new Date().toISOString().split('T')[0];
+  const showDate = matchDateStr !== todayStr;
 
   // Determine styles based on match winner prediction
   const isHome = forecast.matchWinner === "HOME";
@@ -54,7 +60,12 @@ export default function ForecastCard({ data }: Props) {
       <div className="px-4 py-2 bg-bg-card-hover border-b border-border flex justify-between items-center relative group/header">
         <div className="flex flex-col">
           <span className="font-display tracking-wider text-text-soft text-[10px] uppercase">{competition}</span>
-          <span className="font-body text-[10px] text-text-muted">{timeString}</span>
+          <span className="font-body text-[10px] text-text-muted">
+            {showDate && (
+              <span className="text-green-glow/60 mr-1">{date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' })} ·</span>
+            )}
+            {timeString} UTC
+          </span>
         </div>
         
         <button 
