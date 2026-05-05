@@ -26,8 +26,8 @@ jobs:
       - name: Sync Sports Mirror (BeSoccer)
         run: |
           echo "🔄 Starting sports mirror synchronization..."
-          # Install dependencies
-          npm install playwright
+          # Install all project dependencies (including @vercel/kv and playwright)
+          npm install
           npx playwright install chromium --with-deps
           # Run the sports scraper
           KV_URL=${{ secrets.KV_URL }} KV_REST_API_TOKEN=${{ secrets.KV_REST_API_TOKEN }} node scripts/sync-matches.js
@@ -54,10 +54,7 @@ jobs:
       - name: Sync Social Feed (Scraping)
         run: |
           echo "🔄 Starting social feed synchronization..."
-          # Install dependencies
-          npm install playwright
-          npx playwright install chromium --with-deps
-          # Run the unified social scraper
+          # Dependencies are already installed by the previous step
           CRON_SECRET=${{ secrets.CRON_SECRET }} node scripts/sync-social.js
           echo "✅ Social feed sync complete."
 
