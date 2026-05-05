@@ -23,27 +23,42 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
   ];
 
   const systemPrompt = `
-    Eres "Antigravity", el experto analista de apuestas de ADN Futbolero con 20 años de experiencia en análisis cuantitativo.
-    Tu tarea es generar pronósticos deportivos de alta precisión basados en estadísticas real    INSTRUCCIONES DE ANÁLISIS:
-    1. Evalúa la 'forma' (WWDLW) y la posición en la tabla.
-    2. FACTOR DE ELITE: Si recibes 'eliteContext', úsalo prioritariamente. 
-       - Compara las formaciones tácticas (tacticalShape) para ver quién tiene ventaja posicional.
-       - Usa el promedio de tarjetas del árbitro (referee) para predecir la intensidad y riesgo de amonestaciones.
-       - Considera el 'momentum' y el 'competitionSplit' para ver si un equipo rinde mejor en esta competición específica.
-    3. FACTOR DE SUPERVIVENCIA: Si se han jugado > 65% de los partidos y un equipo está en las últimas 5 posiciones, considera su urgencia.
-    4. Usa el promedio de goles anotados (goalsFor/venueStrength) para determinar Over/Under y Clean Sheets.
+    Eres "Antigravity", el experto analista deportivo de ADN Futbolero. Llevas 20 años en el análisis cuantitativo de fútbol internacional.
     
-    ESTILO DE REDACCIÓN: Dinámico, profesional y extremadamente CONCISO. Ve directo al grano táctico.
-    
+    Tu misión: generar pronósticos ÚNICOS y VARIADOS para cada partido. Cada partido es diferente. Tu análisis debe reflejarlo.
+
+    REGLA PRINCIPAL — VARÍA EL ÁNGULO DE ANÁLISIS:
+    Para cada partido, identifica el factor MÁS DETERMINANTE y lidera con él:
+    - Si hay una racha de forma clara (ej. 5 victorias seguidas) → lidera con esa inercia
+    - Si el árbitro es conocido por tarjetas frecuentes → lidera con el factor arbitral
+    - Si es una fase eliminatoria → lidera con la presión y el historial en eliminatorias
+    - Si hay asimetría táctica clara (ej. 4-3-3 vs 5-3-2) → lidera con la ventaja posicional
+    - Si las estadísticas de goles son extremas (equipo que anota mucho vs defensa sólida) → lidera con eso
+    - Si es un derbi o partido de alta rivalidad histórica → lidera con el contexto emocional
+    NUNCA empieces el reasoning con "Analizando las formaciones". Usa esa información solo si es genuinamente determinante.
+
+    INSTRUCCIONES DE ANÁLISIS (por prioridad según disponibilidad de datos):
+    1. MOMENTUM: La forma reciente (WWDLW) es el predictor más fiable. Una racha W-W-W es más potente que cualquier formación.
+    2. CONTEXTO DE COMPETICIÓN: La fase importa (grupos vs eliminatorias), el torneo importa (Copa Libertadores tiene su propia física).
+    3. FACTOR ÁRBITRO: Si yellowCardsAvg > 4.5, predice partidos físicos con tarjetas. Si < 3.5, partidos más fluidos.
+    4. TÁCTICA: Solo analiza formaciones si tienen una diferencia estructural real y relevante.
+    5. ZERO-DATA: Si todos los stats son 0 o "?????", confía en el conocimiento histórico de los equipos/competición.
+
+    ANTI-REPETICIÓN (CRÍTICO):
+    - Cada reasoning en un batch debe ser visiblemente diferente al resto
+    - Prohíbido copiar estructura de frases entre partidos del mismo batch
+    - Varía el vocabulario: alterna entre "presión", "contragolpe", "transiciones", "solidez defensiva", "ejecución ofensiva"
+    - El keyFactor de cada partido DEBE ser único — no repitas el mismo keyFactor dos veces en el batch
+
     REGLAS DE CONSISTENCIA (OBLIGATORIAS):
-    - Si scoreSuggestion suma > 2.5 goles, overUnder25 DEBE ser "OVER".
-    - Si ambos anotan en scoreSuggestion, btts DEBE ser "YES".
-    - Si un equipo tiene 0 en scoreSuggestion, su rival cleanSheet DEBE ser "YES".
-    - NO uses frases vacías. NO menciones que eres una IA.
-    - NO uses comillas dobles (") dentro de tus textos.
+    - Si scoreSuggestion suma > 2.5 goles, overUnder25 DEBE ser "OVER"
+    - Si ambos anotan en scoreSuggestion, btts DEBE ser "YES"
+    - Si un equipo tiene 0 en scoreSuggestion, su rival cleanSheet DEBE ser "YES"
+    - NO uses comillas dobles (") dentro de tus textos de reasoning/keyFactor
+    - NO menciones que eres una IA
 
     FORMATO DE RESPUESTA (ESTRICTO):
-    Responde ÚNICAMENTE con un JSON donde las llaves sean los matchId y el valor sea un objeto con este esquema:
+    Responde ÚNICAMENTE con un JSON donde las llaves sean los matchId y el valor sea un objeto con este esquema exacto:
     {
       "matchWinner": "HOME" | "AWAY" | "DRAW",
       "doubleChance": "1X" | "X2" | "12",
@@ -52,36 +67,44 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
       "homeCleanSheet": "YES" | "NO",
       "awayCleanSheet": "YES" | "NO",
       "confidence": "HIGH" | "MEDIUM" | "LOW",
-      "reasoning": "Análisis táctico profundo basado en datos de ELITE (Máx 350 caracteres)",
+      "reasoning": "Análisis único y específico para ESTE partido (Máx 350 caracteres)",
       "scoreSuggestion": "Ej: 2-1",
-      "keyFactor": "El factor táctico o arbitral determinante (Máx 60 caracteres)"
+      "keyFactor": "Factor determinante ÚNICO para este partido (Máx 60 caracteres)"
     }
   `;
 
-  const matchesData = matches.map(m => ({
-    matchId: m.id,
-    match: `${m.homeTeam.name} vs ${m.awayTeam.name}`,
-    competition: m.competition,
-    stats: {
-      home: {
-        form: m.homeTeam.form,
-        position: m.homeTeam.position,
-        played: m.homeTeam.played,
-        goalsFor: m.homeTeam.goalsFor,
-        goalsAgainst: m.homeTeam.goalsAgainst,
-      },
-      away: {
-        form: m.awayTeam.form,
-        position: m.awayTeam.position,
-        played: m.awayTeam.played,
-        goalsFor: m.awayTeam.goalsFor,
-        goalsAgainst: m.awayTeam.goalsAgainst,
-      },
-      elite: m.eliteContext || null
-    }
-  }));
+  const matchesData = matches.map(m => {
+    // Only include stats that actually have real data (skip misleading zeros)
+    const homeStats: Record<string, any> = {};
+    const awayStats: Record<string, any> = {};
+    if (m.homeTeam.form) homeStats.form = m.homeTeam.form;
+    if (m.homeTeam.position > 0) homeStats.position = m.homeTeam.position;
+    if (m.homeTeam.played > 0) homeStats.played = m.homeTeam.played;
+    if (m.homeTeam.goalsFor > 0) homeStats.goalsFor = m.homeTeam.goalsFor;
+    if (m.homeTeam.goalsAgainst > 0) homeStats.goalsAgainst = m.homeTeam.goalsAgainst;
+    if (m.awayTeam.form) awayStats.form = m.awayTeam.form;
+    if (m.awayTeam.position > 0) awayStats.position = m.awayTeam.position;
+    if (m.awayTeam.played > 0) awayStats.played = m.awayTeam.played;
+    if (m.awayTeam.goalsFor > 0) awayStats.goalsFor = m.awayTeam.goalsFor;
+    if (m.awayTeam.goalsAgainst > 0) awayStats.goalsAgainst = m.awayTeam.goalsAgainst;
 
-  const userPrompt = `Genera los pronósticos para estos partidos:\n${JSON.stringify(matchesData, null, 2)}`;
+    const elite = m.eliteContext;
+    return {
+      matchId: m.id,
+      match: `${m.homeTeam.name} vs ${m.awayTeam.name}`,
+      competition: m.competition,
+      ...(elite?.round && { phase: elite.round }),
+      ...(Object.keys(homeStats).length && { homeStats }),
+      ...(Object.keys(awayStats).length && { awayStats }),
+      referee: elite?.referee || null,
+      momentum: elite?.momentum || null,
+      ...(elite?.tacticalShape && { formation: elite.tacticalShape }),
+      ...(elite?.h2h && { h2h: elite.h2h }),
+      note: "If stats are missing, use your world knowledge about these clubs and this competition."
+    };
+  });
+
+  const userPrompt = `Genera pronósticos VARIADOS para estos ${matches.length} partidos. Recuerda: cada reasoning y keyFactor debe ser DISTINTO al de los otros partidos del batch.\n\n${JSON.stringify(matchesData, null, 2)}`;
 
   let currentKeyIndex = 0;
 
@@ -93,10 +116,10 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
       let model = genAI.getGenerativeModel({
         model: modelName,
         generationConfig: {
-          temperature: 0.4,
+          temperature: 0.85,   // Higher = more varied reasoning per match
           topP: 0.95,
-          topK: 40,
-          maxOutputTokens: 2048,
+          topK: 64,
+          maxOutputTokens: 4096,
           responseMimeType: "application/json",
         }
       });

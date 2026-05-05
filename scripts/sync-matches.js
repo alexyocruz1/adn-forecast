@@ -175,20 +175,25 @@ async function syncMatches() {
         try {
           console.log(`   -> ${match.homeTeam.name} vs ${match.awayTeam.name}`);
 
-          // 1. Referee
+          // 1. Event details: referee stats + round info
           const eventData = await fetchWithRetry(
             page,
             `https://api.sofascore.com/api/v1/event/${match.id}`
           );
-          const refereeName = eventData?.event?.referee?.name || "Oficial";
+          const ref = eventData?.event?.referee;
+          const roundInfo = eventData?.event?.roundInfo;
+          const refereeName = ref?.name || "Oficial";
+          // Real per-game averages (not hardcoded)
+          const yellowCardsAvg = ref?.games > 0 ? +(ref.yellowCards / ref.games).toFixed(2) : null;
+          const redCardsAvg = ref?.games > 0 ? +(ref.redCards / ref.games).toFixed(2) : null;
 
           // 2. Tactical Shape
           const lineupsData = await fetchWithRetry(
             page,
             `https://api.sofascore.com/api/v1/event/${match.id}/lineups`
           );
-          const tacticalHome = lineupsData?.home?.formation || "4-3-3";
-          const tacticalAway = lineupsData?.away?.formation || "4-4-2";
+          const tacticalHome = lineupsData?.home?.formation || null;
+          const tacticalAway = lineupsData?.away?.formation || null;
 
           // 3. Momentum (last 5 results per team)
           const getForm = async (teamId) => {
@@ -214,10 +219,25 @@ async function syncMatches() {
             getForm(match.awayTeam.id),
           ]);
 
+          // 4. Head-to-head
+          const h2hData = await fetchWithRetry(
+            page,
+            `https://api.sofascore.com/api/v1/event/${match.id}/h2h`
+          );
+          const h2h = h2hData?.teamDuel
+            ? { homeWins: h2hData.teamDuel.homeWins, awayWins: h2hData.teamDuel.awayWins, draws: h2hData.teamDuel.draws }
+            : null;
+
           match.eliteContext = {
-            referee: { name: refereeName, yellowCardsAvg: 4.2, redCardsTotal: 2 },
-            tacticalShape: { home: tacticalHome, away: tacticalAway },
+            referee: {
+              name: refereeName,
+              ...(yellowCardsAvg !== null && { yellowCardsAvg }),
+              ...(redCardsAvg !== null && { redCardsAvg }),
+            },
+            ...(roundInfo?.name && { round: roundInfo.name }),
+            ...(tacticalHome && tacticalAway && { tacticalShape: { home: tacticalHome, away: tacticalAway } }),
             momentum: `Home Form: ${homeForm} | Away Form: ${awayForm}`,
+            ...(h2h && { h2h }),
           };
 
           // 4. Logos (cached in KV as base64 to bypass WAF on frontend)
@@ -243,17 +263,11 @@ async function syncMatches() {
     for (const leagueCode in byDate[date]) {
       const matchesToStore = byDate[date][leagueCode].map((m) => ({
         ...m,
-        homeTeam: {
-          ...m.homeTeam,
-          position: 0, played: 0, won: 0, draw: 0, lost: 0,
-          goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "",
-        },
-        awayTeam: {
-          ...m.awayTeam,
-          position: 0, played: 0, won: 0, draw: 0, lost: 0,
-          goalsFor: 0, goalsAgainst: 0, goalDifference: 0, form: "",
-        },
+        // Keep only what we actually know — no fake zeros
+        homeTeam: { ...m.homeTeam },
+        awayTeam: { ...m.awayTeam },
       }));
+
 
       console.log(`📤 Storing ${matchesToStore.length} matches for ${leagueCode} on ${date}...`);
       await kv.set(`matches:${date}:${leagueCode}`, matchesToStore, { ex: 72 * 3600 });

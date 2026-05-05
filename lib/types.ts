@@ -21,9 +21,11 @@ export interface TeamStats {
 export interface EliteContext {
   referee?: {
     name: string;
-    yellowCardsAvg: number;
-    redCardsTotal: number;
+    yellowCardsAvg?: number;
+    redCardsTotal?: number;
+    redCardsAvg?: number;
   };
+  round?: string;
   tacticalShape?: {
     home: string; // e.g. "4-3-3"
     away: string; // e.g. "4-4-2"
@@ -37,6 +39,11 @@ export interface EliteContext {
     leagueGoalsAvg?: number;
   };
   momentum?: string; // One-line trend summary
+  h2h?: {
+    homeWins: number;
+    awayWins: number;
+    draws: number;
+  };
 }
 
 export interface Match {
