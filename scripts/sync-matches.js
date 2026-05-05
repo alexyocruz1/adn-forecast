@@ -91,8 +91,11 @@ async function syncMatches() {
 
   const fetchDates = [todayUtc, tomorrowUtc, dayAfterUtc];
   
-  // Collect all raw events across the 3-day window, deduplicated by event ID
-  const allEventsById = new Map();
+  // Collect all events, deduplicating by event ID.
+  // First occurrence wins — this preserves Sofascore's "football day" grouping.
+  // e.g. Copa matches at 00:00 UTC May 6 appear on Sofascore's May 5 page because
+  // they kick off at ~8pm local South American time on May 5.
+  const eventsBySofascoreDate = {}; // sofascoreDate -> eventId -> event
 
   for (const fetchDate of fetchDates) {
     console.log(`\n📡 Fetching Sofascore schedule for: ${fetchDate}`);
@@ -104,55 +107,59 @@ async function syncMatches() {
       continue;
     }
 
+    if (!eventsBySofascoreDate[fetchDate]) eventsBySofascoreDate[fetchDate] = new Map();
     let added = 0;
+    const seenAcrossAllDates = new Set(Object.values(eventsBySofascoreDate).flatMap(m => [...m.keys()]));
+
     for (const event of data.events) {
       const uniqueId = event.tournament?.uniqueTournament?.id;
-      if (!uniqueId || !ID_TO_CODE[uniqueId]) continue; // Not in our registry
-      if (allEventsById.has(event.id)) continue; // Deduplicate
-      allEventsById.set(event.id, event);
+      if (!uniqueId || !ID_TO_CODE[uniqueId]) continue;
+      if (seenAcrossAllDates.has(event.id)) continue; // Already seen on earlier date (first wins)
+
+      // Filter: skip matches that already kicked off more than 1 hour ago
+      const kickoffMs = event.startTimestamp * 1000;
+      if (kickoffMs < Date.now() - 60 * 60 * 1000) {
+        console.log(`   ⏭️  Skipping (already played): ${event.homeTeam.name} vs ${event.awayTeam.name}`);
+        continue;
+      }
+
+      eventsBySofascoreDate[fetchDate].set(event.id, event);
+      seenAcrossAllDates.add(event.id);
       added++;
     }
-    console.log(`   Found ${data.events.length} total, added ${added} relevant new events.`);
+    console.log(`   Found ${data.events.length} total, added ${added} upcoming relevant events.`);
   }
 
-  console.log(`\n📊 Total unique relevant events: ${allEventsById.size}`);
-
-  // Bin events into their TRUE UTC date (from the timestamp)
-  // This is the authoritative date: when the match actually starts in UTC
+  // Build byDate from Sofascore's assigned dates — only today & tomorrow
   const byDate = {};
-  for (const event of allEventsById.values()) {
-    const trueDate = new Date(event.startTimestamp * 1000).toISOString().split("T")[0];
-    
-    // Only store today and tomorrow in UTC — ignore anything beyond that
-    if (trueDate !== todayUtc && trueDate !== tomorrowUtc) {
-      console.log(`   ⏭️  Skipping ${event.homeTeam.name} vs ${event.awayTeam.name} (UTC date ${trueDate} is out of range)`);
-      continue;
+  for (const sofascoreDate of [todayUtc, tomorrowUtc]) {
+    if (!eventsBySofascoreDate[sofascoreDate]) continue;
+    for (const event of eventsBySofascoreDate[sofascoreDate].values()) {
+      const leagueCode = ID_TO_CODE[event.tournament?.uniqueTournament?.id];
+      if (!byDate[sofascoreDate]) byDate[sofascoreDate] = {};
+      if (!byDate[sofascoreDate][leagueCode]) byDate[sofascoreDate][leagueCode] = [];
+
+      byDate[sofascoreDate][leagueCode].push({
+        id: event.id,
+        competition: LEAGUE_REGISTRY[leagueCode].name,
+        competitionCode: leagueCode,
+        utcDate: new Date(event.startTimestamp * 1000).toISOString(),
+        localTime: new Date(event.startTimestamp * 1000).toISOString().substring(11, 16),
+        season: new Date().getFullYear(),
+        homeTeam: { id: event.homeTeam.id, name: event.homeTeam.name, crest: "" },
+        awayTeam: { id: event.awayTeam.id, name: event.awayTeam.name, crest: "" },
+        matchUrl: `https://www.sofascore.com/football/match/${event.slug}/${event.customId}`,
+      });
     }
-
-    const leagueCode = ID_TO_CODE[event.tournament?.uniqueTournament?.id];
-    if (!byDate[trueDate]) byDate[trueDate] = {};
-    if (!byDate[trueDate][leagueCode]) byDate[trueDate][leagueCode] = [];
-
-    byDate[trueDate][leagueCode].push({
-      id: event.id,
-      competition: LEAGUE_REGISTRY[leagueCode].name,
-      competitionCode: leagueCode,
-      utcDate: new Date(event.startTimestamp * 1000).toISOString(),
-      localTime: new Date(event.startTimestamp * 1000).toISOString().substring(11, 16),
-      season: new Date().getFullYear(),
-      homeTeam: { id: event.homeTeam.id, name: event.homeTeam.name, crest: "" },
-      awayTeam: { id: event.awayTeam.id, name: event.awayTeam.name, crest: "" },
-      matchUrl: `https://www.sofascore.com/football/match/${event.slug}/${event.customId}`,
-    });
   }
 
-  // Log the binning summary
+  // Summary
   for (const date of [todayUtc, tomorrowUtc]) {
     const leagues = byDate[date] ? Object.keys(byDate[date]) : [];
     const total = leagues.reduce((s, l) => s + byDate[date][l].length, 0);
-    console.log(`\n📅 ${date}: ${total} matches across leagues: ${leagues.join(", ") || "none"}`);
+    console.log(`\n📅 ${date}: ${total} matches across: ${leagues.join(", ") || "none"}`);
     for (const l of leagues) {
-      console.log(`   ${l}: ${byDate[date][l].map(m => `${m.homeTeam.name} vs ${m.awayTeam.name}`).join(", ")}`);
+      byDate[date][l].forEach(m => console.log(`   ${l}: ${m.homeTeam.name} vs ${m.awayTeam.name} @ ${m.utcDate.substring(11,16)} UTC`));
     }
   }
 
