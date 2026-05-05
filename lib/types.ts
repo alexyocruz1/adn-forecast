@@ -18,6 +18,27 @@ export interface TeamStats {
   redCards: number;
 }
 
+export interface EliteContext {
+  referee?: {
+    name: string;
+    yellowCardsAvg: number;
+    redCardsTotal: number;
+  };
+  tacticalShape?: {
+    home: string; // e.g. "4-3-3"
+    away: string; // e.g. "4-4-2"
+  };
+  venueStrength?: {
+    homeGoalsAvg: number;
+    awayGoalsAvg: number;
+  };
+  competitionSplit?: {
+    uclGoalsAvg?: number;
+    leagueGoalsAvg?: number;
+  };
+  momentum?: string; // One-line trend summary
+}
+
 export interface Match {
   id: number;
   competition: string;
@@ -26,6 +47,7 @@ export interface Match {
   season: number;
   homeTeam: TeamStats;
   awayTeam: TeamStats;
+  eliteContext?: EliteContext;
 }
 
 export interface ForecastResult {
@@ -35,6 +57,7 @@ export interface ForecastResult {
   utcDate: string;
   homeTeam: TeamStats;
   awayTeam: TeamStats;
+  eliteContext?: EliteContext;
   forecast: {
     matchWinner: "HOME" | "AWAY" | "DRAW";
     doubleChance: "1X" | "X2" | "12";

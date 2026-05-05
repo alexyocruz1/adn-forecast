@@ -152,8 +152,50 @@ export default function ForecastCard({ data }: Props) {
           </div>
         </div>
 
+        {/* Elite Context Section */}
+        {data.eliteContext && (
+          <div className="mt-6 pt-5 border-t border-border/40 animate-in fade-in duration-700">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-1 h-1 rounded-full bg-green-glow shadow-[0_0_8px_rgba(74,222,128,0.8)]"></span>
+              <h4 className="font-display text-[9px] uppercase tracking-[0.2em] text-green-glow/80">Análisis de Élite</h4>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              {/* Tactics */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-body text-text-muted uppercase tracking-wider">Táctica</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-display text-text-primary">{data.eliteContext.tacticalShape?.home || "4-3-3"}</span>
+                  <span className="text-[10px] text-text-muted/40">vs</span>
+                  <span className="text-xs font-display text-text-primary">{data.eliteContext.tacticalShape?.away || "4-4-2"}</span>
+                </div>
+              </div>
+
+              {/* Referee */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-body text-text-muted uppercase tracking-wider">Árbitro</span>
+                <div className="flex items-center gap-1.5">
+                  <svg className="w-3 h-3 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" />
+                  </svg>
+                  <span className="text-xs font-display text-text-primary truncate">{data.eliteContext.referee?.name || "Oficial"}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Momentum Summary */}
+            {data.eliteContext.momentum && (
+              <div className="mt-3 p-2 bg-bg-deep/50 rounded border border-border/10">
+                <p className="text-[10px] font-body text-text-soft leading-tight opacity-80">
+                  {data.eliteContext.momentum}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Reasoning */}
-        <div className="mt-auto space-y-3">
+        <div className="mt-auto pt-5 space-y-3">
           <p className="font-body text-sm text-text-primary italic border-l-2 border-border pl-3">
             "{forecast.keyFactor}"
           </p>
