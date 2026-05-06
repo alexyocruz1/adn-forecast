@@ -90,6 +90,17 @@ async function syncMatches() {
   });
   const page = await context.newPage();
 
+  // Stealth: Hide webdriver so Cloudflare doesn't instantly block us
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', {
+      get: () => undefined,
+    });
+    // Spoof plugins
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => [1, 2, 3],
+    });
+  });
+
   // Prime the browser with Sofascore's homepage so image requests pass WAF checks
   await primeContext(page);
 
