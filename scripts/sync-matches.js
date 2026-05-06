@@ -12,10 +12,22 @@ for (const [code, cfg] of Object.entries(LEAGUE_REGISTRY)) {
 async function fetchWithRetry(page, url, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
-      const text = await page.evaluate(() => document.body.innerText);
-      return JSON.parse(text);
+      // Execute an actual fetch request within the browser context.
+      // This bypasses Cloudflare because it looks like a legitimate XHR
+      // coming from the Sofascore origin (since primeContext put us on sofascore.com)
+      const data = await page.evaluate(async (targetUrl) => {
+        const res = await fetch(targetUrl, {
+          headers: {
+            "Accept": "application/json, text/plain, */*",
+            "Cache-Control": "no-cache",
+          }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+      }, url);
+      return data;
     } catch (e) {
+      console.log(`      ⚠️ fetchWithRetry error for ${url}: ${e.message}`);
       if (i === retries - 1) return null;
       await page.waitForTimeout(2000);
     }
