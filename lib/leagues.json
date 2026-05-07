@@ -58,5 +58,9 @@
   "LigaMX": {
     "name": "Liga MX",
     "espnSlug": "mex.1"
+  },
+  "FifaWorldCup": {
+    "name": "Fifa World Cup",
+    "espnSlug": "fifa.world"
   }
 }
