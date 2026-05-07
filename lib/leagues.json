@@ -62,5 +62,9 @@
   "FifaWorldCup": {
     "name": "Fifa World Cup",
     "espnSlug": "fifa.world"
+  },
+  "HonduranLeague": {
+    "name": "Honduran League",
+    "espnSlug": "hon.1"
   }
 }
