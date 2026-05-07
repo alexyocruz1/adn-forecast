@@ -53,7 +53,8 @@ jobs:
       - name: Sync Social Feed (Scraping)
         run: |
           echo "🔄 Starting social feed synchronization..."
-          # Dependencies are already installed by the previous step
+          # Install Playwright browser specifically for social scraping
+          npx playwright install chromium --with-deps
           CRON_SECRET=${{ secrets.CRON_SECRET }} node scripts/sync-social.js
           echo "✅ Social feed sync complete."
 

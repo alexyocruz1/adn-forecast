@@ -5,6 +5,10 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
+        hostname: "a.espncdn.com",
+      },
+      {
+        protocol: "https",
         hostname: "crests.football-data.org",
       },
       {
