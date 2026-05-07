@@ -2,20 +2,21 @@ export interface TeamStats {
   id: number;
   name: string;
   crest: string; // URL to team crest image
-  position: number;
-  points: number;
-  played: number;
-  won: number;
-  draw: number;
-  lost: number;
-  goalsFor: number;
-  goalsAgainst: number;
-  goalDifference: number;
-  form: string; // e.g. "WWDLW"
-  cleanSheets: number;
-  failedToScore: number;
-  yellowCards: number;
-  redCards: number;
+  record?: string; // e.g. "2-0-1"
+  position?: number;
+  points?: number;
+  played?: number;
+  won?: number;
+  draw?: number;
+  lost?: number;
+  goalsFor?: number;
+  goalsAgainst?: number;
+  goalDifference?: number;
+  form?: string; // e.g. "WWDLW"
+  cleanSheets?: number;
+  failedToScore?: number;
+  yellowCards?: number;
+  redCards?: number;
 }
 
 export interface EliteContext {
@@ -40,10 +41,24 @@ export interface EliteContext {
   };
   momentum?: string; // One-line trend summary
   h2h?: {
-    homeWins: number;
-    awayWins: number;
-    draws: number;
+    date?: string;
+    home: string;
+    away: string;
+    score: string;
+    result: string;
+    round?: string;
+  }[];
+  odds?: {
+    overUnder?: number;
+    homeMoneyline?: number;
+    awayMoneyline?: number;
+    spread?: number;
+    details?: string;
   };
+  homeStats?: Record<string, any>;
+  awayStats?: Record<string, any>;
+  homeInjuries?: string;
+  awayInjuries?: string;
 }
 
 export interface Match {

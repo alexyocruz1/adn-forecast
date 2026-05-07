@@ -38,9 +38,11 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
     NUNCA empieces el reasoning con "Analizando las formaciones". Usa esa información solo si es genuinamente determinante.
 
     INSTRUCCIONES DE ANÁLISIS (por prioridad según disponibilidad de datos):
-    1. MOMENTUM: La forma reciente (WWDLW) es el predictor más fiable. Una racha W-W-W es más potente que cualquier formación.
-    2. CONTEXTO DE COMPETICIÓN: La fase importa (grupos vs eliminatorias), el torneo importa (Copa Libertadores tiene su propia física).
-    3. FACTOR ÁRBITRO: Si yellowCardsAvg > 4.5, predice partidos físicos con tarjetas. Si < 3.5, partidos más fluidos.
+    1. LESIONES CLAVE: Si un jugador mencionado en 'topScorer' o 'topAssists' aparece en la lista de 'injuries' (lesiones), ESTE es el factor más crítico. Debes mencionarlo obligatoriamente en tu reasoning y ajustar tus probabilidades.
+    2. MOMENTUM: La forma reciente (WWDLW) es el predictor más fiable. Una racha W-W-W es más potente que cualquier formación.
+    3. EXPECTATIVAS DEL MERCADO: Si las 'bettingOdds' muestran un claro favorito (ej. moneyline muy negativa), usa esto como base de la expectativa real del mercado, pero busca ángulos de valor.
+    4. CONTEXTO DE COMPETICIÓN: La fase importa (grupos vs eliminatorias), el torneo importa (Copa Libertadores tiene su propia física).
+    5. FACTOR ÁRBITRO: Si tienes datos del árbitro con tarjetas altas, úsalo.
     4. TÁCTICA: Solo analiza formaciones si tienen una diferencia estructural real y relevante.
     5. ZERO-DATA: Si todos los stats son 0 o "?????", confía en el conocimiento histórico de los equipos/competición.
 
@@ -74,21 +76,17 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
   `;
 
   const matchesData = matches.map(m => {
-    // Only include stats that actually have real data (skip misleading zeros)
+    // Map the new ESPN data structure to the AI payload
     const homeStats: Record<string, any> = {};
     const awayStats: Record<string, any> = {};
-    if (m.homeTeam.form) homeStats.form = m.homeTeam.form;
-    if (m.homeTeam.position > 0) homeStats.position = m.homeTeam.position;
-    if (m.homeTeam.played > 0) homeStats.played = m.homeTeam.played;
-    if (m.homeTeam.goalsFor > 0) homeStats.goalsFor = m.homeTeam.goalsFor;
-    if (m.homeTeam.goalsAgainst > 0) homeStats.goalsAgainst = m.homeTeam.goalsAgainst;
-    if (m.awayTeam.form) awayStats.form = m.awayTeam.form;
-    if (m.awayTeam.position > 0) awayStats.position = m.awayTeam.position;
-    if (m.awayTeam.played > 0) awayStats.played = m.awayTeam.played;
-    if (m.awayTeam.goalsFor > 0) awayStats.goalsFor = m.awayTeam.goalsFor;
-    if (m.awayTeam.goalsAgainst > 0) awayStats.goalsAgainst = m.awayTeam.goalsAgainst;
+    
+    if (m.homeTeam.record) homeStats.record = m.homeTeam.record;
+    if (m.awayTeam.record) awayStats.record = m.awayTeam.record;
 
     const elite = m.eliteContext;
+    if (elite?.homeStats) homeStats.leagueStats = elite.homeStats;
+    if (elite?.awayStats) awayStats.leagueStats = elite.awayStats;
+
     return {
       matchId: m.id,
       match: `${m.homeTeam.name} vs ${m.awayTeam.name}`,
@@ -96,10 +94,11 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
       ...(elite?.round && { phase: elite.round }),
       ...(Object.keys(homeStats).length && { homeStats }),
       ...(Object.keys(awayStats).length && { awayStats }),
-      referee: elite?.referee || null,
-      momentum: elite?.momentum || null,
-      ...(elite?.tacticalShape && { formation: elite.tacticalShape }),
+      ...(elite?.odds && { bettingOdds: elite.odds }),
       ...(elite?.h2h && { h2h: elite.h2h }),
+      ...(elite?.momentum && { momentum: elite.momentum }),
+      ...(elite?.homeInjuries && { homeInjuries: elite.homeInjuries }),
+      ...(elite?.awayInjuries && { awayInjuries: elite.awayInjuries }),
       note: "If stats are missing, use your world knowledge about these clubs and this competition."
     };
   });

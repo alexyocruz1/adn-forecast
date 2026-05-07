@@ -92,16 +92,76 @@ async function enrichMatch(leagueSlug, eventId, homeTeamName, awayTeamName) {
     }))
   );
 
-  // Standings stats for both teams
-  const standingsGroups = data.standings?.groups;
-  const homeStats = getStandingStats(standingsGroups, homeTeamName);
-  const awayStats = getStandingStats(standingsGroups, awayTeamName);
+  const getTeamStats = (teamName) => {
+    // 1. Standings
+    const statsObj = getStandingStats(standingsGroups, teamName) || {};
+    
+    // 2. Boxscore total goals (if available)
+    const boxscoreTeams = data.boxscore?.teams || [];
+    const bsTeam = boxscoreTeams.find(t => t.team?.displayName?.toLowerCase() === teamName.toLowerCase());
+    if (bsTeam && bsTeam.statistics) {
+      const goals = bsTeam.statistics.find(s => s.name === "totalGoals");
+      const conceded = bsTeam.statistics.find(s => s.name === "goalsConceded");
+      if (goals) statsObj.goalsFor = goals.value || goals.displayValue;
+      if (conceded) statsObj.goalsAgainst = conceded.value || conceded.displayValue;
+    }
+
+    // 3. Top Players (Leaders)
+    const teamLeaders = (data.leaders || []).find(l => l.team?.displayName?.toLowerCase() === teamName.toLowerCase());
+    if (teamLeaders && teamLeaders.leaders) {
+      const goalLeader = teamLeaders.leaders.find(l => l.name === "goals");
+      const assistLeader = teamLeaders.leaders.find(l => l.name === "goalAssists");
+      
+      if (goalLeader?.leaders?.[0]) {
+        statsObj.topScorer = `${goalLeader.leaders[0].athlete?.displayName} (${goalLeader.leaders[0].displayValue})`;
+      }
+      if (assistLeader?.leaders?.[0]) {
+        statsObj.topAssists = `${assistLeader.leaders[0].athlete?.displayName} (${assistLeader.leaders[0].displayValue})`;
+      }
+    }
+    
+    return Object.keys(statsObj).length > 0 ? statsObj : null;
+  };
+
+  const homeStats = getTeamStats(homeTeamName);
+  const awayStats = getTeamStats(awayTeamName);
 
   // Round name (from notes)
   const roundNote = comp?.notes?.find(n => n.type === "event" || n.headline);
   const round = roundNote?.headline || null;
 
-  return { odds, h2h: h2hGames.length > 0 ? h2hGames.slice(0, 5) : null, homeStats, awayStats, round };
+  // Momentum (recent form WWDLW)
+  const boxscoreForm = data.boxscore?.form || [];
+  const getFormString = (teamName) => {
+    const teamForm = boxscoreForm.find(f => f.team?.displayName?.toLowerCase() === teamName.toLowerCase());
+    if (!teamForm || !teamForm.events) return null;
+    return teamForm.events.map(e => e.gameResult).join("");
+  };
+  const homeForm = getFormString(homeTeamName);
+  const awayForm = getFormString(awayTeamName);
+  const momentum = (homeForm || awayForm) 
+    ? `Home Form: ${homeForm || 'Unknown'} | Away Form: ${awayForm || 'Unknown'}` 
+    : null;
+
+  // Injuries
+  const getInjuries = (homeAway) => {
+    const c = competitors.find(c => c.homeAway === homeAway);
+    if (!c || !c.injuries) return null;
+    return c.injuries.map(i => `${i.athlete?.displayName || 'Player'} (${i.status})`).join(", ");
+  };
+  const homeInjuries = getInjuries("home");
+  const awayInjuries = getInjuries("away");
+
+  return { 
+    odds, 
+    h2h: h2hGames.length > 0 ? h2hGames.slice(0, 5) : null, 
+    homeStats, 
+    awayStats, 
+    round,
+    momentum,
+    homeInjuries,
+    awayInjuries
+  };
 }
 
 async function syncLeague(leagueCode, leagueCfg, date) {
@@ -163,6 +223,9 @@ async function syncLeague(leagueCode, leagueCfg, date) {
         ...(enriched.h2h && { h2h: enriched.h2h }),
         ...(enriched.homeStats && { homeStats: enriched.homeStats }),
         ...(enriched.awayStats && { awayStats: enriched.awayStats }),
+        ...(enriched.momentum && { momentum: enriched.momentum }),
+        ...(enriched.homeInjuries && { homeInjuries: enriched.homeInjuries }),
+        ...(enriched.awayInjuries && { awayInjuries: enriched.awayInjuries }),
       },
     });
 
