@@ -1,312 +1,214 @@
-const { chromium } = require("playwright");
-const { kv } = require("@vercel/kv");
+/**
+ * sync-matches.js — ESPN API Mirror
+ *
+ * Uses ESPN's unofficial but open JSON API (no key, no Cloudflare, works from
+ * GitHub Actions). Fetches today + tomorrow for all leagues, enriches each match
+ * with standings, H2H, and odds, then writes to Vercel KV.
+ *
+ * ESPN scoreboard: GET /apis/site/v2/sports/soccer/{slug}/scoreboard?dates=YYYYMMDD
+ * ESPN summary:    GET /apis/site/v2/sports/soccer/{slug}/summary?event={id}
+ */
 
+const { kv } = require("@vercel/kv");
 const LEAGUE_REGISTRY = require("../lib/leagues.json");
 
-// Build a fast lookup map: sofascoreId -> leagueCode
-const ID_TO_CODE = {};
-for (const [code, cfg] of Object.entries(LEAGUE_REGISTRY)) {
-  if (cfg.sofascoreId) ID_TO_CODE[cfg.sofascoreId] = code;
-}
+const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer";
+const ESPN_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Accept": "application/json",
+};
 
-/**
- * Navigates to sofascore.com homepage and waits until Cloudflare challenge is solved
- * (or the page is genuinely ready). Returns true if successful.
- */
-async function primeContext(page) {
-  try {
-    await page.goto("https://www.sofascore.com/", {
-      waitUntil: "networkidle",
-      timeout: 30000,
-    });
-    // Confirm we're actually on sofascore.com (not a challenge redirect)
-    const url = page.url();
-    if (!url.includes("sofascore.com")) {
-      console.log(`⚠️ primeContext: ended up on ${url}`);
-      return false;
-    }
-    console.log("🍪 Browser context primed with Sofascore cookies.");
-    return true;
-  } catch (e) {
-    console.log("⚠️ Could not prime context:", e.message);
-    return false;
-  }
-}
-
-/**
- * Fetches a Sofascore API URL using a fetch() call executed INSIDE the Playwright
- * browser context. The browser is already on sofascore.com, so:
- *   - The request carries real Sofascore cookies
- *   - The TLS fingerprint is Chromium's (not Node.js's)
- *   - Cloudflare sees it as a legitimate same-site XHR
- */
-async function apiFetch(page, url, retries = 3) {
+async function apiFetch(url, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
-      const data = await page.evaluate(async (targetUrl) => {
-        const res = await fetch(targetUrl, {
-          credentials: "include",
-          headers: {
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Cache-Control": "no-cache",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-site",
-          },
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return await res.json();
-      }, url);
-      return data;
+      const res = await fetch(url, { headers: ESPN_HEADERS });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
     } catch (e) {
-      console.log(`      ⚠️ apiFetch error (attempt ${i + 1}) for ${url}: ${e.message}`);
-      if (i < retries - 1) {
-        // Re-prime the browser context before retrying
-        await primeContext(page);
-        await page.waitForTimeout(2000);
+      console.log(`      ⚠️ apiFetch error (attempt ${i + 1}): ${e.message} — ${url}`);
+      if (i < retries - 1) await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+    }
+  }
+  return null;
+}
+
+/** Format YYYY-MM-DD -> YYYYMMDD for ESPN */
+function toEspnDate(iso) {
+  return iso.replace(/-/g, "");
+}
+
+/** Extract the W-D-L record string from a competitor's records array */
+function getRecord(competitor) {
+  const records = competitor.records || [];
+  const total = records.find(r => r.type === "total" || r.name === "overall");
+  return total?.summary || null;
+}
+
+/** Pull standings stats for a team from the summary response */
+function getStandingStats(standingsGroups, teamName) {
+  for (const group of standingsGroups || []) {
+    for (const entry of group.standings?.entries || []) {
+      if (entry.team?.toLowerCase() === teamName.toLowerCase()) {
+        const stats = {};
+        for (const s of entry.stats || []) {
+          stats[s.name] = s.value;
+        }
+        return stats;
       }
     }
   }
   return null;
 }
 
-async function getLogoBase64(page, teamId) {
-  const cacheKey = `team_logo:${teamId}`;
-  const cached = await kv.get(cacheKey);
-  if (cached) return cached;
+async function enrichMatch(leagueSlug, eventId, homeTeamName, awayTeamName) {
+  const summaryUrl = `${ESPN_BASE}/${leagueSlug}/summary?event=${eventId}`;
+  const data = await apiFetch(summaryUrl);
+  if (!data) return {};
 
-  // We stay on sofascore.com and use fetch() for images too, to avoid navigation
-  try {
-    const base64Url = await page.evaluate(async (teamId) => {
-      const res = await fetch(`https://api.sofascore.com/api/v1/team/${teamId}/image`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const buf = await res.arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      let binary = "";
-      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-      return `data:image/png;base64,${btoa(binary)}`;
-    }, teamId);
-    await kv.set(cacheKey, base64Url);
-    return base64Url;
-  } catch (e) {
-    console.log(`      ⚠️ Could not fetch logo for team ${teamId}: ${e.message}`);
-    return "/images/adnlogo.png";
+  const comp = data.header?.competitions?.[0];
+  const competitors = comp?.competitors || [];
+
+  // Odds (moneyline, over/under, spread from pickcenter)
+  const pc = data.pickcenter?.[0];
+  const odds = pc
+    ? {
+        overUnder: pc.overUnder ?? null,
+        homeMoneyline: pc.homeTeamOdds?.moneyLine ?? null,
+        awayMoneyline: pc.awayTeamOdds?.moneyLine ?? null,
+        spread: pc.spread ?? null,
+        details: pc.details ?? null,
+      }
+    : null;
+
+  // H2H — list of recent meetings with score + result
+  const h2hGames = (data.headToHeadGames || []).flatMap(h =>
+    (h.events || []).map(e => ({
+      date: e.gameDate?.split("T")[0],
+      home: competitors.find(c => c.team?.id === e.homeTeamId)?.team?.displayName || e.homeTeamId,
+      away: competitors.find(c => c.team?.id === e.awayTeamId)?.team?.displayName || e.awayTeamId,
+      score: e.score,
+      result: e.gameResult,
+      round: e.roundName,
+    }))
+  );
+
+  // Standings stats for both teams
+  const standingsGroups = data.standings?.groups;
+  const homeStats = getStandingStats(standingsGroups, homeTeamName);
+  const awayStats = getStandingStats(standingsGroups, awayTeamName);
+
+  // Round name (from notes)
+  const roundNote = comp?.notes?.find(n => n.type === "event" || n.headline);
+  const round = roundNote?.headline || null;
+
+  return { odds, h2h: h2hGames.length > 0 ? h2hGames.slice(0, 5) : null, homeStats, awayStats, round };
+}
+
+async function syncLeague(leagueCode, leagueCfg, date) {
+  const slug = leagueCfg.espnSlug;
+  if (!slug) return [];
+
+  const url = `${ESPN_BASE}/${slug}/scoreboard?dates=${toEspnDate(date)}`;
+  const data = await apiFetch(url);
+  if (!data?.events?.length) return [];
+
+  const matches = [];
+  for (const event of data.events) {
+    const comp = event.competitions?.[0];
+    if (!comp) continue;
+
+    // Only future matches (or currently live — status not Final)
+    const status = comp.status?.type?.name;
+    if (status === "STATUS_FINAL") continue;
+
+    const competitors = comp.competitors || [];
+    const home = competitors.find(c => c.homeAway === "home");
+    const away = competitors.find(c => c.homeAway === "away");
+    if (!home || !away) continue;
+
+    const homeName = home.team.displayName;
+    const awayName = away.team.displayName;
+
+    console.log(`   -> ${homeName} vs ${awayName}`);
+
+    // Rich enrichment from summary endpoint
+    const enriched = await enrichMatch(slug, event.id, homeName, awayName);
+
+    // Build the record string from scoreboard data
+    const homeRecord = getRecord(home);
+    const awayRecord = getRecord(away);
+
+    matches.push({
+      id: parseInt(event.id, 10),
+      competition: leagueCfg.name,
+      competitionCode: leagueCode,
+      utcDate: event.date,
+      season: new Date().getFullYear(),
+      homeTeam: {
+        id: parseInt(home.team.id, 10),
+        name: homeName,
+        crest: home.team.logo || "",
+        record: homeRecord,
+      },
+      awayTeam: {
+        id: parseInt(away.team.id, 10),
+        name: awayName,
+        crest: away.team.logo || "",
+        record: awayRecord,
+      },
+      matchUrl: `https://www.espn.com/soccer/match/_/gameId/${event.id}`,
+      eliteContext: {
+        ...(enriched.round && { round: enriched.round }),
+        ...(enriched.odds && { odds: enriched.odds }),
+        ...(enriched.h2h && { h2h: enriched.h2h }),
+        ...(enriched.homeStats && { homeStats: enriched.homeStats }),
+        ...(enriched.awayStats && { awayStats: enriched.awayStats }),
+      },
+    });
+
+    // Small delay to be respectful to ESPN
+    await new Promise(r => setTimeout(r, 200));
   }
+
+  return matches;
 }
 
 async function syncMatches() {
-  console.log("🚀 Starting Sports Mirror Sync (Sofascore)...");
+  console.log("🚀 Starting Sports Mirror Sync (ESPN API)...");
 
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-blink-features=AutomationControlled",
-    ],
-  });
-  const context = await browser.newContext({
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    viewport: { width: 1280, height: 1000 },
-    extraHTTPHeaders: {
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-  });
-  const page = await context.newPage();
-
-  // Stealth: hide navigator.webdriver before ANY page loads
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
-    Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3] });
-    window.chrome = { runtime: {} };
-  });
-
-  // CRITICAL: navigate to sofascore.com and wait for full load + cookie set
-  // This ensures page.evaluate() fetch calls are made from sofascore.com origin
-  const primed = await primeContext(page);
-  if (!primed) {
-    console.log("⚠️ Failed to prime context. Cloudflare may be blocking. Proceeding anyway...");
-  }
-
-  // Extra wait to let Cloudflare challenge complete if needed
-  await page.waitForTimeout(3000);
-
-  // We fetch a 3-day window to handle timezone-edge matches
   const todayUtc = new Date().toISOString().split("T")[0];
   const tomorrowUtc = new Date(Date.now() + 86400000).toISOString().split("T")[0];
-  const dayAfterUtc = new Date(Date.now() + 2 * 86400000).toISOString().split("T")[0];
 
-  const fetchDates = [todayUtc, tomorrowUtc, dayAfterUtc];
-  const eventsBySofascoreDate = {};
-  const seenAcrossAllDates = new Set();
-
-  for (const fetchDate of fetchDates) {
-    console.log(`\n📡 Fetching Sofascore schedule for: ${fetchDate}`);
-    const url = `https://api.sofascore.com/api/v1/sport/football/scheduled-events/${fetchDate}`;
-    const data = await apiFetch(page, url);
-
-    if (!data?.events) {
-      console.log(`⚠️ No events returned for ${fetchDate}`);
-      continue;
-    }
-
-    if (!eventsBySofascoreDate[fetchDate]) eventsBySofascoreDate[fetchDate] = new Map();
-    let added = 0;
-
-    for (const event of data.events) {
-      const uniqueId = event.tournament?.uniqueTournament?.id;
-      if (!uniqueId || !ID_TO_CODE[uniqueId]) continue;
-      if (seenAcrossAllDates.has(event.id)) continue;
-
-      // Filter: skip matches that already kicked off more than 1 hour ago
-      const kickoffMs = event.startTimestamp * 1000;
-      if (kickoffMs < Date.now() - 60 * 60 * 1000) {
-        console.log(`   ⏭️  Skipping (already played): ${event.homeTeam.name} vs ${event.awayTeam.name}`);
-        continue;
-      }
-
-      eventsBySofascoreDate[fetchDate].set(event.id, event);
-      seenAcrossAllDates.add(event.id);
-      added++;
-    }
-    console.log(`   Found ${data.events.length} total, added ${added} upcoming relevant events.`);
-  }
-
-  // Build byDate — only today & tomorrow
-  const byDate = {};
-  for (const sofascoreDate of [todayUtc, tomorrowUtc]) {
-    if (!eventsBySofascoreDate[sofascoreDate]) continue;
-    for (const event of eventsBySofascoreDate[sofascoreDate].values()) {
-      const leagueCode = ID_TO_CODE[event.tournament?.uniqueTournament?.id];
-      if (!byDate[sofascoreDate]) byDate[sofascoreDate] = {};
-      if (!byDate[sofascoreDate][leagueCode]) byDate[sofascoreDate][leagueCode] = [];
-
-      byDate[sofascoreDate][leagueCode].push({
-        id: event.id,
-        competition: LEAGUE_REGISTRY[leagueCode].name,
-        competitionCode: leagueCode,
-        utcDate: new Date(event.startTimestamp * 1000).toISOString(),
-        localTime: new Date(event.startTimestamp * 1000).toISOString().substring(11, 16),
-        season: new Date().getFullYear(),
-        homeTeam: { id: event.homeTeam.id, name: event.homeTeam.name, crest: "" },
-        awayTeam: { id: event.awayTeam.id, name: event.awayTeam.name, crest: "" },
-        matchUrl: `https://www.sofascore.com/football/match/${event.slug}/${event.customId}`,
-      });
-    }
-  }
-
-  // Summary
   for (const date of [todayUtc, tomorrowUtc]) {
-    const leagues = byDate[date] ? Object.keys(byDate[date]) : [];
-    const total = leagues.reduce((s, l) => s + byDate[date][l].length, 0);
-    console.log(`\n📅 ${date}: ${total} matches across: ${leagues.join(", ") || "none"}`);
-    for (const l of leagues) {
-      byDate[date][l].forEach(m => console.log(`   ${l}: ${m.homeTeam.name} vs ${m.awayTeam.name} @ ${m.utcDate.substring(11, 16)} UTC`));
-    }
-  }
+    console.log(`\n📅 Syncing date: ${date}`);
+    const byLeague = {};
 
-  // --- DEEP SCRAPE FOR ELITE CONTEXT + LOGOS ---
-  for (const date of [todayUtc, tomorrowUtc]) {
-    if (!byDate[date]) continue;
+    for (const [leagueCode, leagueCfg] of Object.entries(LEAGUE_REGISTRY)) {
+      console.log(`\n🔍 Fetching ${leagueCode} (${leagueCfg.espnSlug})...`);
+      const matches = await syncLeague(leagueCode, leagueCfg, date);
 
-    for (const leagueCode in byDate[date]) {
-      const matches = byDate[date][leagueCode];
-      console.log(`\n🔍 Deep Scanning ${matches.length} matches in ${leagueCode} for ${date}...`);
-
-      for (const match of matches) {
-        try {
-          console.log(`   -> ${match.homeTeam.name} vs ${match.awayTeam.name}`);
-
-          // 1. Event details: referee stats + round info
-          const eventData = await apiFetch(page, `https://api.sofascore.com/api/v1/event/${match.id}`);
-          const ref = eventData?.event?.referee;
-          const roundInfo = eventData?.event?.roundInfo;
-          const refereeName = ref?.name || "Oficial";
-          const yellowCardsAvg = ref?.games > 0 ? +(ref.yellowCards / ref.games).toFixed(2) : null;
-          const redCardsAvg = ref?.games > 0 ? +(ref.redCards / ref.games).toFixed(2) : null;
-
-          // 2. Tactical Shape
-          const lineupsData = await apiFetch(page, `https://api.sofascore.com/api/v1/event/${match.id}/lineups`);
-          const tacticalHome = lineupsData?.home?.formation || null;
-          const tacticalAway = lineupsData?.away?.formation || null;
-
-          // 3. Momentum (last 5 results per team)
-          const getForm = async (teamId) => {
-            const formEvents = await apiFetch(page, `https://api.sofascore.com/api/v1/team/${teamId}/events/last/0`);
-            if (!formEvents?.events) return "?????";
-            let formStr = "";
-            for (const e of formEvents.events.slice(0, 5)) {
-              if (e.homeScore?.current === undefined) continue;
-              const homeWin = e.homeScore.current > e.awayScore.current;
-              const awayWin = e.homeScore.current < e.awayScore.current;
-              if (homeWin) formStr += e.homeTeam.id == teamId ? "W" : "L";
-              else if (awayWin) formStr += e.homeTeam.id == teamId ? "L" : "W";
-              else formStr += "D";
-            }
-            return formStr || "?????";
-          };
-
-          const [homeForm, awayForm] = await Promise.all([
-            getForm(match.homeTeam.id),
-            getForm(match.awayTeam.id),
-          ]);
-
-          // 4. Head-to-head
-          const h2hData = await apiFetch(page, `https://api.sofascore.com/api/v1/event/${match.id}/h2h`);
-          const h2h = h2hData?.teamDuel
-            ? { homeWins: h2hData.teamDuel.homeWins, awayWins: h2hData.teamDuel.awayWins, draws: h2hData.teamDuel.draws }
-            : null;
-
-          match.eliteContext = {
-            referee: {
-              name: refereeName,
-              ...(yellowCardsAvg !== null && { yellowCardsAvg }),
-              ...(redCardsAvg !== null && { redCardsAvg }),
-            },
-            ...(roundInfo?.name && { round: roundInfo.name }),
-            ...(tacticalHome && tacticalAway && { tacticalShape: { home: tacticalHome, away: tacticalAway } }),
-            momentum: `Home Form: ${homeForm} | Away Form: ${awayForm}`,
-            ...(h2h && { h2h }),
-          };
-
-          // 5. Logos (via page.evaluate fetch — stays on sofascore.com origin)
-          const [homeCrest, awayCrest] = await Promise.all([
-            getLogoBase64(page, match.homeTeam.id),
-            getLogoBase64(page, match.awayTeam.id),
-          ]);
-          match.homeTeam.crest = homeCrest;
-          match.awayTeam.crest = awayCrest;
-
-          await page.waitForTimeout(300);
-        } catch (e) {
-          console.log(`      ⚠️ Deep scrape error: ${e.message}`);
-        }
+      if (matches.length > 0) {
+        byLeague[leagueCode] = matches;
+        console.log(`   ✅ ${matches.length} matches found`);
+      } else {
+        console.log(`   ⚪ No upcoming matches`);
       }
     }
-  }
 
-  // --- SAVE TO KV ---
-  for (const date of [todayUtc, tomorrowUtc]) {
-    if (!byDate[date]) continue;
-
-    for (const leagueCode in byDate[date]) {
-      const matchesToStore = byDate[date][leagueCode].map((m) => ({
-        ...m,
-        homeTeam: { ...m.homeTeam },
-        awayTeam: { ...m.awayTeam },
-      }));
-
-      console.log(`📤 Storing ${matchesToStore.length} matches for ${leagueCode} on ${date}...`);
-      await kv.set(`matches:${date}:${leagueCode}`, matchesToStore, { ex: 72 * 3600 });
+    // Save to KV
+    for (const [leagueCode, matches] of Object.entries(byLeague)) {
+      console.log(`📤 Storing ${matches.length} matches for ${leagueCode} on ${date}...`);
+      await kv.set(`matches:${date}:${leagueCode}`, matches, { ex: 72 * 3600 });
     }
+
+    const total = Object.values(byLeague).reduce((s, m) => s + m.length, 0);
+    console.log(`\n📊 ${date}: ${total} total matches stored across ${Object.keys(byLeague).join(", ") || "none"}`);
   }
 
-  await browser.close();
   console.log("\n✅ Sports Mirror Sync Complete.");
 }
 
-syncMatches();
+syncMatches().catch(err => {
+  console.error("❌ Sync failed:", err);
+  process.exit(1);
+});

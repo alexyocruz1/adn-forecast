@@ -1,101 +1,62 @@
 {
   "UCL": {
     "name": "Champions League",
-    "sofascoreId": 7,
-    "aliases": [
-      "uefa champions league"
-    ]
+    "espnSlug": "uefa.champions"
   },
   "UEL": {
     "name": "Europa League",
-    "sofascoreId": 679,
-    "aliases": [
-      "uefa europa league"
-    ]
+    "espnSlug": "uefa.europa"
   },
   "UECL": {
     "name": "Conference League",
-    "sofascoreId": 17015,
-    "aliases": [
-      "uefa europa conference league",
-      "uefa conference league"
-    ]
+    "espnSlug": "uefa.europa.conf"
   },
   "CONCACAF": {
     "name": "CONCACAF Champions Cup",
-    "sofascoreId": 498,
-    "aliases": [
-      "concacaf champions cup",
-      "concacaf champions league"
-    ]
+    "espnSlug": "concacaf.champions"
   },
   "CS": {
     "name": "Copa Sudamericana",
-    "sofascoreId": 480,
-    "aliases": [
-      "conmebol sudamericana"
-    ]
+    "espnSlug": "conmebol.sudamericana"
   },
   "CL": {
     "name": "Copa Libertadores",
-    "sofascoreId": 384,
-    "aliases": [
-      "conmebol libertadores"
-    ]
+    "espnSlug": "conmebol.libertadores"
   },
   "PL": {
     "name": "Premier League",
-    "sofascoreId": 17
+    "espnSlug": "eng.1"
   },
   "PD": {
     "name": "La Liga",
-    "sofascoreId": 8,
-    "aliases": [
-      "laliga"
-    ]
+    "espnSlug": "esp.1"
   },
   "SA": {
     "name": "Serie A",
-    "sofascoreId": 23
+    "espnSlug": "ita.1"
   },
   "BL1": {
     "name": "Bundesliga",
-    "sofascoreId": 35
+    "espnSlug": "ger.1"
   },
   "FL1": {
     "name": "Ligue 1",
-    "sofascoreId": 34
+    "espnSlug": "fra.1"
   },
   "DED": {
     "name": "Eredivisie",
-    "sofascoreId": 37
+    "espnSlug": "ned.1"
   },
   "PPL": {
     "name": "Liga Portugal",
-    "sofascoreId": 238,
-    "aliases": [
-      "primeira liga",
-      "liga portugal betclic"
-    ]
-  },
-  "WC": {
-    "name": "World Cup",
-    "sofascoreId": 16
-  },
-  "EC": {
-    "name": "Euro",
-    "sofascoreId": 1
+    "espnSlug": "por.1"
   },
   "MLS": {
     "name": "Major League Soccer",
-    "sofascoreId": 242
+    "espnSlug": "usa.1"
   },
   "LigaMX": {
-    "name": "Liga MX, Clausura",
-    "sofascoreId": 11620
-  },
-  "LigaBetcris": {
-    "name": "Liga Betcris de Honduras, Clausura",
-    "sofascoreId": 11614
+    "name": "Liga MX",
+    "espnSlug": "mex.1"
   }
 }

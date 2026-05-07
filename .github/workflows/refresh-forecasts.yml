@@ -23,14 +23,12 @@ jobs:
       - name: Wait for full initialization
         run: sleep 5
 
-      - name: Sync Sports Mirror (Sofascore)
+      - name: Sync Sports Mirror (ESPN API)
         run: |
           echo "🔄 Starting sports mirror synchronization..."
-          # Install all project dependencies (including @vercel/kv and playwright)
+          # Install all project dependencies
           npm install
-          npx playwright install chromium --with-deps
-          # Run the sports scraper
-          # Note: @vercel/kv v3 requires KV_REST_API_URL (not KV_URL)
+          # Run the sports scraper — pure Node.js fetch, no browser needed
           KV_REST_API_URL=${{ secrets.KV_REST_API_URL }} KV_REST_API_TOKEN=${{ secrets.KV_REST_API_TOKEN }} node scripts/sync-matches.js
           echo "✅ Sports mirror sync complete."
 
