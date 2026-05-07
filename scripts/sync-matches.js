@@ -92,6 +92,8 @@ async function enrichMatch(leagueSlug, eventId, homeTeamName, awayTeamName) {
     }))
   );
 
+  const standingsGroups = data.standings?.groups;
+
   const getTeamStats = (teamName) => {
     // 1. Standings
     const statsObj = getStandingStats(standingsGroups, teamName) || {};
