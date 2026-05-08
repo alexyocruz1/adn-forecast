@@ -1,5 +1,5 @@
-"use client";
-
+import { useRef, useState } from "react";
+import { toJpeg } from "html-to-image";
 import Image from "next/image";
 import { ForecastResult } from "@/lib/types";
 
@@ -9,53 +9,155 @@ interface Props {
 
 export default function ForecastCard({ data }: Props) {
   const { matchId, competition, utcDate, homeTeam, awayTeam, forecast } = data;
-  
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [isSharing, setIsSharing] = useState(false);
+
   // Always format in UTC — prevents server/client hydration mismatch
-  // (Vercel server is UTC; without timeZone spec the client would use local tz)
   const date = new Date(utcDate);
-  const timeString = date.toLocaleTimeString('es-ES', { 
-    hour: '2-digit', 
+  const timeString = date.toLocaleTimeString('es-ES', {
+    hour: '2-digit',
     minute: '2-digit',
     hour12: false,
     timeZone: 'UTC'
   });
-  // Show the date only when the match is NOT on today's UTC date (e.g. cross-midnight MAÑANA matches)
+
   const matchDateStr = date.toISOString().split('T')[0];
   const todayStr = new Date().toISOString().split('T')[0];
   const showDate = matchDateStr !== todayStr;
 
-  // Determine styles based on match winner prediction
   const isHome = forecast.matchWinner === "HOME";
   const isDraw = forecast.matchWinner === "DRAW";
   const isAway = forecast.matchWinner === "AWAY";
 
-  const predictionClass = isHome 
-    ? "prediction-bar-home glow-home" 
-    : isDraw 
-      ? "prediction-bar-draw glow-draw" 
+  const predictionClass = isHome
+    ? "prediction-bar-home glow-home"
+    : isDraw
+      ? "prediction-bar-draw glow-draw"
       : "prediction-bar-away glow-away";
 
-  const badgeBg = isHome 
-    ? "bg-badge-home text-[#052e16]" 
-    : isDraw 
-      ? "bg-badge-draw text-[#422006]" 
+  const badgeBg = isHome
+    ? "bg-badge-home text-[#052e16]"
+    : isDraw
+      ? "bg-badge-draw text-[#422006]"
       : "bg-badge-away text-[#0c1a2e]";
 
-  const predictionText = isHome 
-    ? "VICTORIA LOCAL" 
-    : isDraw 
-      ? "EMPATE" 
+  const predictionText = isHome
+    ? "VICTORIA LOCAL"
+    : isDraw
+      ? "EMPATE"
       : "VICTORIA VISITANTE";
 
-  // Confidence styles
-  const confidenceColor = forecast.confidence === "HIGH" 
-    ? "text-badge-home border-badge-home" 
+  const confidenceColor = forecast.confidence === "HIGH"
+    ? "text-badge-home border-badge-home"
     : forecast.confidence === "MEDIUM"
       ? "text-badge-draw border-badge-draw"
       : "text-badge-low border-badge-low";
 
+  const handleShare = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!cardRef.current || isSharing) return;
+
+    try {
+      setIsSharing(true);
+
+      const shareTitle = `Pronóstico: ${homeTeam.name} vs ${awayTeam.name}`;
+      const shareText = `IA de ADN Futbolero predice ${forecast.scoreSuggestion}.`;
+
+      if (navigator.canShare && navigator.share) {
+        // --- NUCLEAR CACHE FIX: Pre-convert images to Data URLs ---
+        const convertToDataUrl = async (url: string) => {
+          try {
+            const response = await fetch(url);
+            const blob = await response.blob();
+            return new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+          } catch (e) {
+            console.warn("Failed to pre-convert image:", url, e);
+            return url;
+          }
+        };
+
+        const homeImg = cardRef.current.querySelector(`img[alt="${homeTeam.name}"]`) as HTMLImageElement;
+        const awayImg = cardRef.current.querySelector(`img[alt="${awayTeam.name}"]`) as HTMLImageElement;
+
+        let originalHomeSrc = "";
+        let originalAwaySrc = "";
+
+        if (homeImg && awayImg) {
+          originalHomeSrc = homeImg.src;
+          originalAwaySrc = awayImg.src;
+
+          const [homeDataUrl, awayDataUrl] = await Promise.all([
+            convertToDataUrl(originalHomeSrc),
+            convertToDataUrl(originalAwaySrc)
+          ]);
+
+          homeImg.src = homeDataUrl;
+          awayImg.src = awayDataUrl;
+        }
+
+        // Capture card as JPEG
+        const dataUrl = await toJpeg(cardRef.current, {
+          quality: 0.9,
+          pixelRatio: 2,
+          cacheBust: true,
+          backgroundColor: '#0a0a0a',
+          filter: (node) => {
+            const isButton = node instanceof HTMLElement && (node.tagName === 'BUTTON' || node.getAttribute('title') === 'Compartir Pronóstico');
+            return !isButton;
+          },
+        });
+
+        // Restore original sources
+        if (homeImg && awayImg) {
+          homeImg.src = originalHomeSrc;
+          awayImg.src = originalAwaySrc;
+        }
+
+        if (dataUrl) {
+          const res = await fetch(dataUrl);
+          const blob = await res.blob();
+          const file = new File([blob], `pronostico-${matchId}.jpg`, { type: 'image/jpeg' });
+
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+            });
+            setIsSharing(false);
+            return;
+          }
+        }
+      }
+
+      // Fallback
+      if (navigator.share) {
+        await navigator.share({
+          title: shareTitle,
+          text: `${shareTitle}\n${shareText}`,
+          url: window.location.href,
+        });
+      } else {
+        await navigator.clipboard.writeText(window.location.href);
+        alert("¡Enlace copiado al portapapeles!");
+      }
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        console.error("Error sharing:", error);
+      }
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
   return (
-    <article className={`bg-bg-card rounded-lg overflow-hidden flex flex-col h-full border border-border transition-all duration-300 ${predictionClass}`}>
+    <article
+      ref={cardRef}
+      className={`bg-bg-card rounded-lg overflow-hidden flex flex-col h-full border border-border transition-all duration-300 ${predictionClass}`}
+    >
       {/* Header */}
       <div className="px-4 py-2 bg-bg-card-hover border-b border-border flex justify-between items-center relative group/header">
         <div className="flex flex-col">
@@ -67,27 +169,23 @@ export default function ForecastCard({ data }: Props) {
             {timeString} UTC
           </span>
         </div>
-        
-        <button 
-          onClick={() => {
-            const shareData = {
-              title: `Pronóstico: ${homeTeam.name} vs ${awayTeam.name}`,
-              text: `IA de ADN Futbolero predice ${forecast.scoreSuggestion} para el ${homeTeam.name} vs ${awayTeam.name}. factor clave: ${forecast.keyFactor}`,
-              url: window.location.href,
-            };
-            if (navigator.share) {
-              navigator.share(shareData).catch(console.error);
-            } else {
-              navigator.clipboard.writeText(window.location.href);
-              alert("¡Enlace copiado al portapapeles!");
-            }
-          }}
-          className="p-1.5 rounded-full hover:bg-green-glow/20 text-text-muted hover:text-green-glow transition-all"
-          title="Compartir"
+
+        <button
+          onClick={(e) => handleShare(e)}
+          disabled={isSharing}
+          className={`p-1.5 rounded-full hover:bg-green-glow/20 text-text-muted hover:text-green-glow transition-all ${isSharing ? 'animate-pulse opacity-50' : ''}`}
+          title="Compartir Pronóstico"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-          </svg>
+          {isSharing ? (
+            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+            </svg>
+          )}
         </button>
       </div>
 
@@ -95,13 +193,12 @@ export default function ForecastCard({ data }: Props) {
         {/* Teams & Score Suggestion */}
         <div className="flex justify-between items-center mb-6">
           <div className="flex flex-col items-center gap-2 w-1/3">
-            <div className="relative w-12 h-12">
-              <Image 
-                src={homeTeam.crest || '/images/adnlogo.png'} 
+            <div className="relative w-12 h-12 flex items-center justify-center">
+              <img 
+                key={`home-${matchId}`}
+                src={homeTeam.crest ? `/_next/image?url=${encodeURIComponent(homeTeam.crest)}&w=128&q=75&v=${matchId}` : '/images/adnlogo.png'} 
                 alt={homeTeam.name}
-                fill
-                sizes="(max-width: 768px) 32px, 48px"
-                className="object-contain"
+                className="w-12 h-12 object-contain"
                 onError={(e) => { e.currentTarget.src = '/images/adnlogo.png'; }}
               />
             </div>
@@ -115,13 +212,12 @@ export default function ForecastCard({ data }: Props) {
           </div>
 
           <div className="flex flex-col items-center gap-2 w-1/3">
-            <div className="relative w-12 h-12">
-              <Image 
-                src={awayTeam.crest || '/images/adnlogo.png'} 
+            <div className="relative w-12 h-12 flex items-center justify-center">
+              <img 
+                key={`away-${matchId}`}
+                src={awayTeam.crest ? `/_next/image?url=${encodeURIComponent(awayTeam.crest)}&w=128&q=75&v=${matchId}` : '/images/adnlogo.png'} 
                 alt={awayTeam.name}
-                fill
-                sizes="(max-width: 768px) 32px, 48px"
-                className="object-contain"
+                className="w-12 h-12 object-contain"
                 onError={(e) => { e.currentTarget.src = '/images/adnlogo.png'; }}
               />
             </div>
@@ -170,7 +266,7 @@ export default function ForecastCard({ data }: Props) {
               <span className="w-1 h-1 rounded-full bg-green-glow shadow-[0_0_8px_rgba(74,222,128,0.8)]"></span>
               <h4 className="font-display text-[9px] uppercase tracking-[0.2em] text-green-glow/80">Análisis de Élite</h4>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               {/* Tactics */}
               <div className="flex flex-col gap-1">
