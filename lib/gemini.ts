@@ -59,7 +59,7 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
     - NO uses comillas dobles (") dentro de tus textos de reasoning/keyFactor
     - NO menciones que eres una IA
 
-    FORMATO DE RESPUESTA (ESTRICTO):
+    FORMATO DE RESPUESTA (ESTRICTO — RESPONDER SIEMPRE EN ESPAÑOL):
     Responde ÚNICAMENTE con un JSON donde las llaves sean los matchId y el valor sea un objeto con este esquema exacto:
     {
       "matchWinner": "HOME" | "AWAY" | "DRAW",
@@ -69,9 +69,9 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
       "homeCleanSheet": "YES" | "NO",
       "awayCleanSheet": "YES" | "NO",
       "confidence": "HIGH" | "MEDIUM" | "LOW",
-      "reasoning": "Análisis único y específico para ESTE partido (Máx 350 caracteres)",
+      "reasoning": "Análisis ÚNICO y DETALLADO en ESPAÑOL para ESTE partido (Máx 350 caracteres)",
       "scoreSuggestion": "Ej: 2-1",
-      "keyFactor": "Factor determinante ÚNICO para este partido (Máx 60 caracteres)"
+      "keyFactor": "Factor determinante UNICO para este partido y en ESPAÑOL (Máx 60 caracteres)"
     }
   `;
 
@@ -79,7 +79,7 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
     // Map the new ESPN data structure to the AI payload
     const homeStats: Record<string, any> = {};
     const awayStats: Record<string, any> = {};
-    
+
     if (m.homeTeam.record) homeStats.record = m.homeTeam.record;
     if (m.awayTeam.record) awayStats.record = m.awayTeam.record;
 
@@ -103,14 +103,14 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
     };
   });
 
-  const userPrompt = `Genera pronósticos VARIADOS para estos ${matches.length} partidos. Recuerda: cada reasoning y keyFactor debe ser DISTINTO al de los otros partidos del batch.\n\n${JSON.stringify(matchesData, null, 2)}`;
+  const userPrompt = `Genera pronósticos VARIADOS y EXCLUSIVAMENTE EN ESPAÑOL para estos ${matches.length} partidos. Recuerda: cada reasoning y keyFactor debe ser DISTINTO al de los otros partidos del batch.\n\n${JSON.stringify(matchesData, null, 2)}`;
 
   let currentKeyIndex = 0;
 
   for (const modelName of models) {
     try {
       console.log(`[gemini] Attempting with model: ${modelName} using key index ${currentKeyIndex}`);
-      
+
       let genAI = new GoogleGenerativeAI(apiKeys[currentKeyIndex] || "");
       let model = genAI.getGenerativeModel({
         model: modelName,
@@ -169,7 +169,7 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
               await sleep(15000); // Wait a full 15 seconds to let the minute-based rate limit reset
               continue;
             }
-            
+
             // If we exhausted 429 retries, try falling back to the next API key if available
             if (currentKeyIndex < apiKeys.length - 1) {
               console.warn(`[gemini] Primary API key rate limit exhausted. Switching to fallback API key...`);
@@ -187,7 +187,7 @@ export async function generateBatchForecasts(matches: Match[], retries = 3): Pro
                 }
               });
               // Reset the retry counter to try again with the new key
-              i = -1; 
+              i = -1;
               continue;
             }
 
