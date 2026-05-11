@@ -196,7 +196,7 @@ export default function ForecastCard({ data }: Props) {
             <div className="relative w-12 h-12 flex items-center justify-center">
               <img 
                 key={`home-${matchId}`}
-                src={homeTeam.crest ? `/_next/image?url=${encodeURIComponent(homeTeam.crest)}&w=128&q=75&v=${matchId}` : '/images/adnlogo.png'} 
+                src={homeTeam.crest || '/images/adnlogo.png'} 
                 alt={homeTeam.name}
                 className="w-12 h-12 object-contain"
                 onError={(e) => { e.currentTarget.src = '/images/adnlogo.png'; }}
@@ -215,7 +215,7 @@ export default function ForecastCard({ data }: Props) {
             <div className="relative w-12 h-12 flex items-center justify-center">
               <img 
                 key={`away-${matchId}`}
-                src={awayTeam.crest ? `/_next/image?url=${encodeURIComponent(awayTeam.crest)}&w=128&q=75&v=${matchId}` : '/images/adnlogo.png'} 
+                src={awayTeam.crest || '/images/adnlogo.png'} 
                 alt={awayTeam.name}
                 className="w-12 h-12 object-contain"
                 onError={(e) => { e.currentTarget.src = '/images/adnlogo.png'; }}
