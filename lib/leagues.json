@@ -66,5 +66,9 @@
   "HonduranLeague": {
     "name": "Honduran League",
     "espnSlug": "hon.1"
+  },
+  "FifaFriendly": {
+    "name": "Fifa Friendly",
+    "espnSlug": "fifa.friendly"
   }
 }
